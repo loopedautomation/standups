@@ -9,6 +9,10 @@ rtc:
   port_range_start: 51000
   port_range_end: 51100
   use_external_ip: false
+  # Advertise the host loopback instead of the Docker-internal IP so browsers
+  # on this machine can actually reach the media ports. For LAN testing from
+  # other devices, change this to your machine's LAN IP.
+  node_ip: 127.0.0.1
 keys:
   devkey: devsecret_change_me_32_characters_x
 logging:

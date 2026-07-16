@@ -3,7 +3,6 @@
 import { LiveKitRoom } from "@livekit/components-react"
 import type { TokenResponse } from "@meet/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { useRouter } from "next/navigation"
 import { useCallback, useState } from "react"
 import { Lobby } from "@/components/room/Lobby"
 import { MeetingView } from "@/components/room/MeetingView"
@@ -19,7 +18,6 @@ export type JoinPreferences = {
 }
 
 export function RoomClient({ slug }: { slug: string }) {
-  const router = useRouter()
   const [session, setSession] = useState<{
     token: TokenResponse
     prefs: JoinPreferences
@@ -45,10 +43,11 @@ export function RoomClient({ slug }: { slug: string }) {
     [slug],
   )
 
+  // Back to the lobby (not the landing page) so a refresh or accidental
+  // disconnect is one click from rejoining.
   const handleLeave = useCallback(() => {
     setSession(null)
-    router.push("/")
-  }, [router])
+  }, [])
 
   if (!session) {
     return <Lobby slug={slug} onJoin={handleJoin} error={error} />

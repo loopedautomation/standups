@@ -27,7 +27,21 @@ export function ControlBar({ slug }: { slug: string }) {
     localParticipant,
   } = useLocalParticipant()
   const [copied, setCopied] = useState(false)
+  const [mediaError, setMediaError] = useState<string | null>(null)
   const openPanel = useStore($openPanel)
+
+  const toggle = (action: () => Promise<unknown>, what: string) => {
+    setMediaError(null)
+    action().catch((err: unknown) => {
+      const detail =
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "browser permission denied"
+          : err instanceof Error
+            ? err.message
+            : "unknown error"
+      setMediaError(`Could not toggle ${what}: ${detail}`)
+    })
+  }
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href)
@@ -58,7 +72,10 @@ export function ControlBar({ slug }: { slug: string }) {
           type="button"
           className={`btn btn-circle ${isMicrophoneEnabled ? "btn-neutral" : "btn-error"}`}
           onClick={() =>
-            localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)
+            toggle(
+              () => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled),
+              "microphone",
+            )
           }
           aria-label="Toggle microphone"
         >
@@ -71,7 +88,12 @@ export function ControlBar({ slug }: { slug: string }) {
         <button
           type="button"
           className={`btn btn-circle ${isCameraEnabled ? "btn-neutral" : "btn-error"}`}
-          onClick={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
+          onClick={() =>
+            toggle(
+              () => localParticipant.setCameraEnabled(!isCameraEnabled),
+              "camera",
+            )
+          }
           aria-label="Toggle camera"
         >
           {isCameraEnabled ? (
@@ -84,7 +106,11 @@ export function ControlBar({ slug }: { slug: string }) {
           type="button"
           className={`btn btn-circle ${isScreenShareEnabled ? "btn-primary" : "btn-neutral"}`}
           onClick={() =>
-            localParticipant.setScreenShareEnabled(!isScreenShareEnabled)
+            toggle(
+              () =>
+                localParticipant.setScreenShareEnabled(!isScreenShareEnabled),
+              "screen share",
+            )
           }
           aria-label="Toggle screen share"
         >
@@ -98,6 +124,11 @@ export function ControlBar({ slug }: { slug: string }) {
         >
           <PhoneOff className="size-5" />
         </button>
+        {mediaError && (
+          <span className="max-w-64 truncate text-error text-xs">
+            {mediaError}
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-1">

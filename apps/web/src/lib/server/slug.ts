@@ -1,59 +1,11 @@
 import { customAlphabet } from "nanoid"
 
-const adjectives = [
-  "amber",
-  "bright",
-  "calm",
-  "clever",
-  "cosmic",
-  "gentle",
-  "golden",
-  "keen",
-  "lively",
-  "lucid",
-  "mellow",
-  "nimble",
-  "quiet",
-  "rapid",
-  "silver",
-  "sunny",
-  "swift",
-  "tidy",
-  "vivid",
-  "witty",
-]
-
-const nouns = [
-  "aurora",
-  "beacon",
-  "canyon",
-  "comet",
-  "delta",
-  "ember",
-  "falcon",
-  "garden",
-  "harbor",
-  "island",
-  "lagoon",
-  "meadow",
-  "nebula",
-  "orbit",
-  "prairie",
-  "river",
-  "summit",
-  "tundra",
-  "valley",
-  "zephyr",
-]
-
-const suffix = customAlphabet("abcdefghjkmnpqrstuvwxyz23456789", 4)
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
+// Digits only, grouped for readability: e.g. 4821-0357-9964-1102.
+// 16 digits ≈ 10^16 combinations — unguessable at any realistic rate.
+const digits = customAlphabet("0123456789", 4)
 
 export function generateRoomSlug(): string {
-  return `${pick(adjectives)}-${pick(nouns)}-${suffix()}`
+  return `${digits()}-${digits()}-${digits()}-${digits()}`
 }
 
 export function isValidRoomSlug(slug: string): boolean {

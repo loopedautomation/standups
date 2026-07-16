@@ -5,12 +5,20 @@ import { type ChatMessage, chatMessageSchema, DataTopic } from "@meet/shared"
 import { SendHorizontal } from "lucide-react"
 import { nanoid } from "nanoid"
 import { useEffect, useRef, useState } from "react"
+import {
+  completeMention,
+  MentionPicker,
+  mentionQuery,
+  useMentionables,
+} from "@/components/room/panels/MentionPicker"
 
 export function ChatPanel() {
   const { localParticipant } = useLocalParticipant()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
+  const mentionables = useMentionables()
+  const query = mentionQuery(draft)
 
   const { send } = useDataChannel(DataTopic.Chat, (msg) => {
     const parsed = chatMessageSchema.safeParse(
@@ -61,10 +69,17 @@ export function ChatPanel() {
         ))}
         <div ref={bottomRef} />
       </ul>
-      <form onSubmit={handleSend} className="flex gap-2 p-3">
+      <form onSubmit={handleSend} className="relative flex gap-2 p-3">
+        {query !== null && (
+          <MentionPicker
+            query={query}
+            candidates={mentionables}
+            onPick={(name) => setDraft((d) => completeMention(d, name))}
+          />
+        )}
         <input
           className="input input-sm flex-1"
-          placeholder="Send a message"
+          placeholder="Send a message — @ to mention"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
         />

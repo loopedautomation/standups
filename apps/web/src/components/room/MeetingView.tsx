@@ -2,6 +2,8 @@
 
 import { RoomAudioRenderer, useTracks } from "@livekit/components-react"
 import { Track } from "livekit-client"
+import { motion } from "motion/react"
+import { useRef } from "react"
 import { ControlBar } from "@/components/room/ControlBar"
 import { ParticipantTile } from "@/components/room/ParticipantTile"
 import { PanelHost } from "@/components/room/panels/PanelHost"
@@ -20,12 +22,13 @@ export function MeetingView({ slug }: { slug: string }) {
   const localTrack = cameraTracks.find((t) => t.participant.isLocal)
   const remoteTracks = cameraTracks.filter((t) => !t.participant.isLocal)
   const alone = remoteTracks.length === 0
+  const stageRef = useRef<HTMLDivElement>(null)
 
   return (
     <div className="flex h-dvh flex-col bg-base-200">
       <RoomAudioRenderer />
 
-      <div className="relative flex min-h-0 flex-1 gap-3 p-3">
+      <div ref={stageRef} className="relative flex min-h-0 flex-1 gap-3 p-3">
         {focused ? (
           <>
             <div className="min-w-0 flex-1">
@@ -65,11 +68,17 @@ export function MeetingView({ slug }: { slug: string }) {
           </div>
         )}
 
-        {/* Your own video floats bottom-right once others are in the call. */}
+        {/* Your own video floats bottom-right once others are in the call; drag it anywhere. */}
         {!alone && localTrack && (
-          <div className="absolute right-6 bottom-6 z-10 w-48 shadow-lg sm:w-56">
+          <motion.div
+            drag
+            dragConstraints={stageRef}
+            dragElastic={0.1}
+            dragMomentum={false}
+            className="absolute right-6 bottom-6 z-10 w-48 cursor-grab shadow-lg active:cursor-grabbing sm:w-56"
+          >
             <ParticipantTile trackRef={localTrack} compact />
-          </div>
+          </motion.div>
         )}
 
         <PanelHost slug={slug} />

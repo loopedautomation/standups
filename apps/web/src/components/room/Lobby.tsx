@@ -15,7 +15,14 @@ type LobbyProps = {
 
 export function Lobby({ slug, onJoin, error }: LobbyProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [displayName, setDisplayName] = useState("")
+  const [displayName, setDisplayName] = useState(() => {
+    if (typeof window === "undefined") return ""
+    try {
+      return localStorage.getItem("displayName") ?? ""
+    } catch {
+      return ""
+    }
+  })
   const [audioEnabled, setAudioEnabled] = useState(true)
   const [videoEnabled, setVideoEnabled] = useState(true)
   const [audioDeviceId, setAudioDeviceId] = useState<string>()
@@ -34,6 +41,9 @@ export function Lobby({ slug, onJoin, error }: LobbyProps) {
     e.preventDefault()
     if (!displayName.trim()) return
     setJoining(true)
+    try {
+      localStorage.setItem("displayName", displayName.trim())
+    } catch {}
     stopStream()
     await onJoin({
       displayName: displayName.trim(),

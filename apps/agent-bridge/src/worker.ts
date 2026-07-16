@@ -145,17 +145,60 @@ export default defineAgent({
           const message = chatMessageSchema.parse(
             JSON.parse(new TextDecoder().decode(payload)),
           )
-          if (message.from === `agent-${entry.id}`) return
+          if (message.from.startsWith("agent-")) return
           const mention = new RegExp(`@${entry.name}\\b`, "i")
           if (!mention.test(message.text)) return
-          session.generateReply({
-            userInput: `${message.fromName} (in meeting chat): ${message.text}`,
-          })
+          void replyInChat(message)
         } catch {
           // ignore malformed chat messages
         }
       }
     })
+
+    // Chat mentions get a chat reply — text in, text out; tool activity
+    // still streams to the activity feed.
+    const replyInChat = async (message: ChatMessage) => {
+      const input = `${message.fromName} (in the meeting chat — reply concisely, your reply appears in the chat): ${message.text}`
+      setState(sessionState.muted ? "muted" : "thinking")
+      try {
+        let reply = ""
+        for await (const frame of brain.runTurn(input)) {
+          const at = Date.now()
+          if (frame.type === "assistant") {
+            reply += (reply ? "\n" : "") + frame.content
+          } else if (frame.type === "tool_call") {
+            publishActivity({
+              type: "tool_call",
+              agentId: entry.id,
+              name: frame.name,
+              arguments: frame.arguments,
+              at,
+            })
+          } else if (frame.type === "tool_result") {
+            publishActivity({
+              type: "tool_result",
+              agentId: entry.id,
+              name: frame.name,
+              content: frame.content.slice(0, 2000),
+              durationMs: frame.durationMs,
+              at,
+            })
+          } else if (frame.type === "error") {
+            throw new Error(frame.error)
+          }
+        }
+        if (reply) publishChat(reply)
+      } catch (err) {
+        const busy = err instanceof Error && /in progress/.test(err.message)
+        publishChat(
+          busy
+            ? "(I'm mid-task right now — ask me again in a moment.)"
+            : "(Sorry, I couldn't process that.)",
+        )
+      } finally {
+        setState(sessionState.muted ? "muted" : "listening")
+      }
+    }
 
     await session.start({ agent, room: ctx.room })
 

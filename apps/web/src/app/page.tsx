@@ -31,12 +31,11 @@ export default function HomePage() {
 
       <section className="flex flex-1 flex-col items-center justify-center gap-8 py-16 text-center">
         <h1 className="max-w-2xl text-balance font-semibold text-4xl tracking-tight sm:text-5xl">
-          Meetings where <span className="text-primary">agents</span> have a
-          seat at the table
+          Give your agents a voice in your next meeting
         </h1>
         <p className="max-w-xl text-balance text-base-content/70 text-lg">
-          Open-source video calls with first-class AI participants, powered by
-          the looped agent framework.
+          And let them be part of the conversation. Open-source video calls with
+          first-class AI participants, powered by the looped agent framework.
         </p>
         <HomeActions />
       </section>
