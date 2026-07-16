@@ -50,7 +50,7 @@ export function ControlBar({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="flex items-center justify-between gap-2 border-base-300 border-t bg-base-100 px-4 py-3">
+    <div className="flex items-center justify-between gap-2 border-base-300 border-b bg-base-100 px-4 py-3">
       <div className="hidden items-center gap-2 sm:flex">
         <span className="font-mono text-base-content/60 text-sm">{slug}</span>
         <button

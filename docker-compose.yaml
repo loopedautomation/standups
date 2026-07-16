@@ -15,6 +15,9 @@ services:
           port_range_end: 51100
           use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-false}
           node_ip: ${LIVEKIT_NODE_IP:-127.0.0.1}
+          # Docker Desktop's UDP proxy is unreliable for WebRTC on macOS —
+          # TCP-only media is rock solid for local dev. Set false in production.
+          force_tcp: ${LIVEKIT_FORCE_TCP:-false}
         keys:
           ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}
         logging:

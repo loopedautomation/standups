@@ -37,6 +37,7 @@ export function MeetingView({ slug }: { slug: string }) {
     <div className="flex h-dvh flex-col bg-base-200">
       <RoomAudioRenderer />
       <RoomDataListener />
+      <ControlBar slug={slug} />
 
       {connectionState !== ConnectionState.Connected && (
         <div className="alert alert-warning fixed top-4 left-1/2 z-50 w-auto -translate-x-1/2 shadow-lg">
@@ -108,8 +109,6 @@ export function MeetingView({ slug }: { slug: string }) {
 
         <PanelHost slug={slug} />
       </div>
-
-      <ControlBar slug={slug} />
     </div>
   )
 }
