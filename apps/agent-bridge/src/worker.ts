@@ -148,6 +148,7 @@ export default defineAgent({
           if (message.from.startsWith("agent-")) return
           const mention = new RegExp(`@${entry.name}\\b`, "i")
           if (!mention.test(message.text)) return
+          console.log(`[${entry.id}] chat mention from ${message.fromName}`)
           void replyInChat(message)
         } catch {
           // ignore malformed chat messages
@@ -200,7 +201,13 @@ export default defineAgent({
       }
     }
 
-    await session.start({ agent, room: ctx.room })
+    await session.start({
+      agent,
+      room: ctx.room,
+      // Stay in the room when the inviting participant refreshes/leaves;
+      // the agent is removed explicitly or when the room empties out.
+      inputOptions: { closeOnDisconnect: false },
+    })
 
     if (entry.greeting) {
       session.say(entry.greeting)

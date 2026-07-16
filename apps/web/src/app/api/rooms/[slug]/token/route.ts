@@ -20,13 +20,13 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   // First joiner becomes host (roomAdmin) — enables lock/remove controls.
-  let isHost = false
+  let participantCount = 0
   try {
-    const participants = await roomService().listParticipants(slug)
-    isHost = participants.length === 0
+    participantCount = (await roomService().listParticipants(slug)).length
   } catch {
-    isHost = true
+    participantCount = 0
   }
+  const isHost = participantCount === 0
 
   const { apiKey, apiSecret, publicUrl } = livekitEnv()
   const identity = `user-${nanoid(10)}`
@@ -51,5 +51,6 @@ export async function POST(request: Request, { params }: Params) {
     token: await token.toJwt(),
     serverUrl: publicUrl,
     identity,
+    participantCount,
   })
 }

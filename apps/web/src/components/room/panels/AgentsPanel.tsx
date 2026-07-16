@@ -4,31 +4,23 @@ import { useDataChannel, useParticipants } from "@livekit/components-react"
 import {
   type AgentActivityEvent,
   type AgentControl,
-  agentActivityEventSchema,
   DataTopic,
   parseParticipantMeta,
 } from "@meet/shared"
+import { useStore } from "@nanostores/react"
 import type { Participant } from "livekit-client"
 import { Bot, Mic, MicOff, Plus, UserX, Wrench } from "lucide-react"
-import { useState } from "react"
 import { useAgentState } from "@/components/room/AgentBadge"
 import { useAgentInvite } from "@/hooks/mutations/useAgentInvite"
 import { useAgents } from "@/hooks/queries/useAgents"
+import { $agentActivity } from "@/stores/roomData"
 
 export function AgentsPanel({ slug }: { slug: string }) {
   const { data: agents = [], isLoading } = useAgents()
   const participants = useParticipants()
   const invite = useAgentInvite(slug)
-  const [activity, setActivity] = useState<AgentActivityEvent[]>([])
+  const activity = useStore($agentActivity)
 
-  useDataChannel(DataTopic.AgentActivity, (msg) => {
-    const parsed = agentActivityEventSchema.safeParse(
-      JSON.parse(new TextDecoder().decode(msg.payload)),
-    )
-    if (parsed.success) {
-      setActivity((prev) => [...prev.slice(-99), parsed.data])
-    }
-  })
   const { send: sendControl } = useDataChannel(DataTopic.AgentControl)
 
   const agentParticipants = new Map(

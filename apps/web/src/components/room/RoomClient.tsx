@@ -57,8 +57,11 @@ export function RoomClient({ slug }: { slug: string }) {
     <LiveKitRoom
       token={session.token.token}
       serverUrl={session.token.serverUrl}
+      // Join with the lobby's mic setting — unless others are already in the
+      // call, in which case join muted (unmute from the control bar).
       audio={
-        session.prefs.audioEnabled && {
+        session.prefs.audioEnabled &&
+        session.token.participantCount === 0 && {
           deviceId: session.prefs.audioDeviceId,
         }
       }

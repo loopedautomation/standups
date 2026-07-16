@@ -7,6 +7,7 @@ import { useRef } from "react"
 import { ControlBar } from "@/components/room/ControlBar"
 import { ParticipantTile } from "@/components/room/ParticipantTile"
 import { PanelHost } from "@/components/room/panels/PanelHost"
+import { RoomDataListener } from "@/components/room/RoomDataListener"
 import { ScreenShareTile } from "@/components/room/ScreenShareTile"
 
 export function MeetingView({ slug }: { slug: string }) {
@@ -27,6 +28,7 @@ export function MeetingView({ slug }: { slug: string }) {
   return (
     <div className="flex h-dvh flex-col bg-base-200">
       <RoomAudioRenderer />
+      <RoomDataListener />
 
       <div ref={stageRef} className="relative flex min-h-0 flex-1 gap-3 p-3">
         {focused ? (

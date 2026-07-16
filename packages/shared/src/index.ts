@@ -103,6 +103,8 @@ export const tokenResponseSchema = z.object({
   token: z.string(),
   serverUrl: z.string(),
   identity: z.string(),
+  /** How many participants were already in the room before this join. */
+  participantCount: z.number().int().min(0).default(0),
 })
 export type TokenResponse = z.infer<typeof tokenResponseSchema>
 

@@ -1,8 +1,9 @@
 import { customAlphabet } from "nanoid"
 
-// Digits only: e.g. 4821035799641102.
-// 16 digits ≈ 10^16 combinations — unguessable at any realistic rate.
-const digits = customAlphabet("0123456789", 16)
+// Digits only: e.g. 4821035799.
+// 10 digits ≈ 10^10 combinations; rooms are ephemeral (5-min empty timeout),
+// so live rooms are effectively unguessable at any realistic scan rate.
+const digits = customAlphabet("0123456789", 10)
 
 export function generateRoomSlug(): string {
   return digits()

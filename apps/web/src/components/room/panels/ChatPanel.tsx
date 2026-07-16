@@ -1,7 +1,8 @@
 "use client"
 
 import { useDataChannel, useLocalParticipant } from "@livekit/components-react"
-import { type ChatMessage, chatMessageSchema, DataTopic } from "@meet/shared"
+import { type ChatMessage, DataTopic } from "@meet/shared"
+import { useStore } from "@nanostores/react"
 import { SendHorizontal } from "lucide-react"
 import { nanoid } from "nanoid"
 import { useEffect, useRef, useState } from "react"
@@ -11,21 +12,17 @@ import {
   mentionQuery,
   useMentionables,
 } from "@/components/room/panels/MentionPicker"
+import { $chatMessages, addChatMessage } from "@/stores/roomData"
 
 export function ChatPanel() {
   const { localParticipant } = useLocalParticipant()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const messages = useStore($chatMessages)
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
   const mentionables = useMentionables()
   const query = mentionQuery(draft)
 
-  const { send } = useDataChannel(DataTopic.Chat, (msg) => {
-    const parsed = chatMessageSchema.safeParse(
-      JSON.parse(new TextDecoder().decode(msg.payload)),
-    )
-    if (parsed.success) setMessages((prev) => [...prev, parsed.data])
-  })
+  const { send } = useDataChannel(DataTopic.Chat)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -43,7 +40,7 @@ export function ChatPanel() {
       at: Date.now(),
     }
     setDraft("")
-    setMessages((prev) => [...prev, message])
+    addChatMessage(message)
     await send(new TextEncoder().encode(JSON.stringify(message)), {
       topic: DataTopic.Chat,
       reliable: true,
