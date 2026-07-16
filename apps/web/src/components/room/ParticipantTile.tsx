@@ -33,7 +33,7 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
     <div
       className={`relative overflow-hidden rounded-box transition-shadow ${
         participant.isLocal
-          ? "bg-neutral text-neutral-content ring-1 ring-primary/40"
+          ? "bg-base-300 ring-1 ring-primary/40"
           : "bg-base-300"
       } ${speaking ? "ring-2 ring-primary" : ""} ${
         compact ? "aspect-video shrink-0" : "size-full min-h-0"
