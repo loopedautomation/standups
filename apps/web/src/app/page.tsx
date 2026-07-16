@@ -53,7 +53,7 @@ export default function HomePage() {
       </section>
 
       <footer className="border-base-300 border-t py-6 text-center text-base-content/50 text-sm">
-        looped meet — open source, self-hosted.
+        looped standups — open source, self-hosted.
       </footer>
     </main>
   )

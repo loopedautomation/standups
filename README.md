@@ -1,4 +1,4 @@
-# Looped Meet
+# Looped Standups
 
 Open-source, self-hostable video meetings with **first-class AI agent participants**, powered by [LiveKit](https://livekit.io) and the [Looped agent framework](https://github.com/loopedautomation/agent-framework).
 

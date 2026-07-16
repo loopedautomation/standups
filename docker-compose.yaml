@@ -1,4 +1,4 @@
-name: looped-meet
+name: looped-standups
 
 services:
   livekit:
