@@ -31,26 +31,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # TLS reverse proxy — production only: docker compose --profile prod up
-  caddy:
-    image: caddy:2-alpine
-    profiles: ["prod"]
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      MEET_DOMAIN: ${MEET_DOMAIN:-meet.lpd.sh}
-      LK_DOMAIN: ${LK_DOMAIN:-lk.lpd.sh}
-      MEET_ALIAS_DOMAIN: ${MEET_ALIAS_DOMAIN:-meet.looped.sh}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - web
-      - livekit
-    restart: unless-stopped
-
   web:
     build:
       context: .
@@ -130,5 +110,3 @@ services:
 
 volumes:
   demo-agent-data:
-  caddy-data:
-  caddy-config:

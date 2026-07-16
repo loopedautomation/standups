@@ -60,20 +60,26 @@ The demo agent lives in [`examples/demo-agent/agent.yaml`](./examples/demo-agent
 
 ## Production deploy (TLS + domains)
 
-Same compose file — the `prod` profile adds Caddy with automatic TLS:
+Bring your own TLS reverse proxy (Coolify/Traefik/Caddy/nginx — anything that fronts Docker services works). Two hostnames terminate TLS at the proxy:
+
+| Domain | Proxies to | Purpose |
+|---|---|---|
+| `meet.example.com` | `web:3000` | the app |
+| `lk.example.com` | `livekit:7880` (WebSocket) | LiveKit signaling |
+
+In `.env`:
 
 ```sh
-cp .env.example .env    # secrets, domains, and:
-                        #   NEXT_PUBLIC_LIVEKIT_URL=wss://$LK_DOMAIN
-                        #   LIVEKIT_USE_EXTERNAL_IP=true
-                        #   LIVEKIT_NODE_IP=          (empty — auto-detect)
-docker compose --profile prod up -d --build
+NEXT_PUBLIC_LIVEKIT_URL=wss://lk.example.com
+LIVEKIT_USE_EXTERNAL_IP=true
+LIVEKIT_NODE_IP=            # empty — auto-detect public IP
+LIVEKIT_API_SECRET=<strong secret>
 ```
 
-- Point `MEET_DOMAIN` (the app, e.g. `meet.lpd.sh`) and `LK_DOMAIN` (LiveKit signaling, e.g. `lk.lpd.sh`) at your host; `MEET_ALIAS_DOMAIN` 301-redirects to the app.
-- Open `80`/`443` (Caddy) plus `7881/tcp` and `51000-51100/udp` (WebRTC media — flows directly to LiveKit, not through Caddy).
-- All LiveKit config is templated from `.env` inside the compose file — there is no separate LiveKit yaml. **Change `LIVEKIT_API_SECRET`** before exposing anything.
+- WebRTC media does NOT go through the proxy: expose `7881/tcp` and `51000-51100/udp` directly on the host.
+- All LiveKit config is templated from `.env` inside the compose file — there is no separate LiveKit yaml.
 - The web image bakes `NEXT_PUBLIC_LIVEKIT_URL` in at build time — rebuild if the domain changes.
+- On Coolify: add the repo as a Docker Compose resource, attach the two domains to the `web` and `livekit` services, and set the env vars in the resource's environment tab.
 
 ## Deploying beyond localhost
 
