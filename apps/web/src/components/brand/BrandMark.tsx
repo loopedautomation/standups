@@ -25,8 +25,8 @@ export function BrandMark({ className }: { className?: string }) {
 export function Wordmark() {
   return (
     <Link href="/" className="flex items-center gap-2">
-      <BrandMark className="h-6 w-auto" />
-      <span className="font-semibold text-lg text-primary tracking-tight">
+      <BrandMark className="h-5 w-auto" />
+      <span className="font-semibold text-base-content text-lg tracking-tight">
         meet
       </span>
     </Link>
