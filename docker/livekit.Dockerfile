@@ -13,7 +13,10 @@ RUN apk add --no-cache curl tar \
     | tar -xz -C /usr/local/bin infisical \
  && infisical --version
 
-FROM livekit/livekit-server:v1.8
+# v1.9+ required: livekit-client 2.20 (protocol 17) can't complete publisher
+# negotiation against v1.8 (protocol 15) — every client hits "negotiation
+# timed out" ~15s after connecting and reconnect-loops forever.
+FROM livekit/livekit-server:v1.9
 COPY --from=infisical /usr/local/bin/infisical /usr/local/bin/infisical
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["docker-entrypoint.sh"]
