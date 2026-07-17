@@ -74,7 +74,7 @@ services:
       <<: *infisical
       INFISICAL_SECRETS_PATH: "/apps/web /shared"
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
-      # NEXT_PUBLIC_LIVEKIT_URL (browser-facing, read server-side at runtime)
+      # LIVEKIT_PUBLIC_URL (browser-facing, read server-side at runtime)
       # comes from Infisical /apps/web in production, or .env locally.
       BRIDGE_URL: ${BRIDGE_URL:-http://agent-bridge:8090}
     depends_on:

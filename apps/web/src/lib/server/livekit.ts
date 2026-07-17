@@ -13,7 +13,7 @@ export function livekitEnv() {
     /** Server-to-server URL, e.g. http://livekit:7880 */
     url: required("LIVEKIT_URL"),
     /** Browser-facing WebSocket URL, e.g. ws://localhost:7880 */
-    publicUrl: required("NEXT_PUBLIC_LIVEKIT_URL"),
+    publicUrl: required("LIVEKIT_PUBLIC_URL"),
   }
 }
 

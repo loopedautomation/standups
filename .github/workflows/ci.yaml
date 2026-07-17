@@ -31,4 +31,4 @@ jobs:
 
       - run: pnpm -r build
         env:
-          NEXT_PUBLIC_LIVEKIT_URL: ws://localhost:7880
+          LIVEKIT_PUBLIC_URL: ws://localhost:7880

@@ -73,7 +73,7 @@ Bring your own TLS reverse proxy (Coolify/Traefik/Caddy/nginx — anything that 
 In `.env`:
 
 ```sh
-NEXT_PUBLIC_LIVEKIT_URL=wss://lk.example.com
+LIVEKIT_PUBLIC_URL=wss://lk.example.com
 LIVEKIT_USE_EXTERNAL_IP=true
 LIVEKIT_NODE_IP=            # empty — auto-detect public IP
 LIVEKIT_API_SECRET=<strong secret>
@@ -92,7 +92,7 @@ INFISICAL_CLIENT_SECRET=<machine identity client secret>
 LIVEKIT_USE_EXTERNAL_IP=true   # compose-interpolation-time, can't come from Infisical
 ```
 
-`NEXT_PUBLIC_LIVEKIT_URL` is read server-side at runtime (the token API hands
+`LIVEKIT_PUBLIC_URL` is read server-side at runtime (the token API hands
 it to the browser as `serverUrl`), so despite the name it is NOT baked into
 the web build — it lives in Infisical under `/apps/web` like any other
 runtime var.
@@ -113,10 +113,10 @@ before.
 ## Deploying beyond localhost
 
 - **WebRTC needs UDP.** Expose ports `7880` (ws), `7881/tcp` and `51000-51100/udp` on your host, and set `LIVEKIT_USE_EXTERNAL_IP=true` (with `LIVEKIT_NODE_IP` empty) in `.env`. If the UDP range clashes with something on your machine, change it in `docker-compose.yaml` (both the port mapping and the templated LiveKit config).
-- **Set `NEXT_PUBLIC_LIVEKIT_URL`** to your public LiveKit URL (`wss://…` behind TLS). It's read server-side at runtime — set it in `.env` (or Infisical `/apps/web`); no rebuild needed when it changes.
+- **Set `LIVEKIT_PUBLIC_URL`** to your public LiveKit URL (`wss://…` behind TLS). It's read server-side at runtime — set it in `.env` (or Infisical `/apps/web`); no rebuild needed when it changes.
 - **Restrictive NATs / corporate firewalls** may need TURN. LiveKit ships an embedded TURN server — see the [LiveKit self-hosting guide](https://docs.livekit.io/home/self-hosting/) for the `turn:` config block and TLS certificates.
 - **Scaling**: a single node comfortably handles dozens of concurrent video participants. For multi-node LiveKit you'll need Redis — out of scope here.
-- Alternatively, point the app at **LiveKit Cloud** (set `LIVEKIT_URL`/`NEXT_PUBLIC_LIVEKIT_URL` and keys) and skip hosting the SFU entirely; you still self-host the web app, bridge, and agents.
+- Alternatively, point the app at **LiveKit Cloud** (set `LIVEKIT_URL`/`LIVEKIT_PUBLIC_URL` and keys) and skip hosting the SFU entirely; you still self-host the web app, bridge, and agents.
 
 ## Development
 

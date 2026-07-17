@@ -24,7 +24,7 @@ WORKDIR /repo
 COPY --from=deps /repo ./
 COPY packages/shared packages/shared
 COPY apps/web apps/web
-# NEXT_PUBLIC_LIVEKIT_URL is only read server-side at runtime (the token API
+# LIVEKIT_PUBLIC_URL is only read server-side at runtime (the token API
 # returns it as serverUrl) — nothing is inlined into the client bundle, so the
 # image needs no build-time env and is fully generic.
 RUN cd apps/web && pnpm build
