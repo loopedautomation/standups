@@ -23,8 +23,10 @@ const SAMPLES_PER_MIX = (REALTIME_SAMPLE_RATE / 1000) * MIX_INTERVAL_MS
 
 const instructions = (entry: AgentEntry) =>
   `You are ${entry.name}, an AI agent participating in a live voice meeting ` +
-  "with several people. Keep spoken replies concise and conversational. " +
-  `Use the ask_agent tool for anything beyond small talk.`
+  "with several people. Keep spoken replies concise and conversational — a " +
+  "sentence or two unless asked for more. Answer questions yourself whenever " +
+  "you can; reach for the ask_agent tool only when you need its tools, its " +
+  "memory, or to take an action."
 
 /**
  * Runs an agent whose interaction layer is a realtime speech-to-speech model:

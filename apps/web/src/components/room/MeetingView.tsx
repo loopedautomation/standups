@@ -51,19 +51,25 @@ export function MeetingView({ slug }: { slug: string }) {
         </div>
       )}
 
-      <div ref={stageRef} className="relative flex min-h-0 flex-1 gap-3 p-3">
+      <div
+        ref={stageRef}
+        className="relative flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row"
+      >
         {focused ? (
           <>
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1">
               <ScreenShareTile trackRef={focused} />
             </div>
-            <div className="flex w-52 shrink-0 flex-col gap-3 overflow-y-auto">
+            {/* Phones: a horizontal strip of feeds below the share.
+                Desktop: the classic column to its right. */}
+            <div className="flex h-24 shrink-0 flex-row gap-3 overflow-x-auto md:h-auto md:w-52 md:flex-col md:overflow-x-visible md:overflow-y-auto">
               {remoteTracks.map((trackRef) => (
-                <ParticipantTile
+                <div
                   key={trackRef.participant.identity}
-                  trackRef={trackRef}
-                  compact
-                />
+                  className="w-36 shrink-0 md:w-auto"
+                >
+                  <ParticipantTile trackRef={trackRef} compact />
+                </div>
               ))}
             </div>
           </>
@@ -75,12 +81,16 @@ export function MeetingView({ slug }: { slug: string }) {
             </div>
           )
         ) : (
+          // Phones in portrait stack tiles vertically; rotating to landscape
+          // (or any md+ screen) switches to the computed grid.
           <div
-            className="grid min-h-0 min-w-0 flex-1 gap-3"
-            style={{
-              gridTemplateColumns: `repeat(${gridColumns(remoteTracks.length)}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${gridRows(remoteTracks.length)}, minmax(0, 1fr))`,
-            }}
+            className="grid min-h-0 min-w-0 flex-1 auto-rows-fr grid-cols-1 gap-3 landscape:[grid-template-columns:var(--cols)] landscape:[grid-template-rows:var(--rows)] md:[grid-template-columns:var(--cols)] md:[grid-template-rows:var(--rows)]"
+            style={
+              {
+                "--cols": `repeat(${gridColumns(remoteTracks.length)}, minmax(0, 1fr))`,
+                "--rows": `repeat(${gridRows(remoteTracks.length)}, minmax(0, 1fr))`,
+              } as React.CSSProperties
+            }
           >
             {remoteTracks.map((trackRef) => (
               <ParticipantTile
@@ -101,7 +111,7 @@ export function MeetingView({ slug }: { slug: string }) {
             dragMomentum
             dragTransition={{ bounceStiffness: 400, bounceDamping: 22 }}
             whileDrag={{ scale: 1.04 }}
-            className={`absolute bottom-6 z-10 w-48 cursor-grab shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
+            className={`absolute bottom-6 z-10 w-32 cursor-grab shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
               openPanel ? "right-[22.25rem]" : "right-6"
             }`}
           >

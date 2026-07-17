@@ -112,10 +112,12 @@ export class RealtimeSession {
               type: "function",
               name: DELEGATE_TOOL,
               description:
-                "Ask the agent to do something or answer something. It has this agent's tools, " +
-                "memory and permissions. Use it for anything beyond small talk: questions about " +
-                "systems, data or state, and every request to take an action. Say a few words " +
-                "first so the person knows you are working on it.",
+                "Ask the agent to do something on your behalf. It has this agent's tools, " +
+                "memory and permissions but takes several seconds, so use it only when you " +
+                "actually need it: taking an action, looking something up, or answering about " +
+                "systems, data or private state. Answer general questions and conversation " +
+                "yourself, directly. When you do call it, say a few words first so the person " +
+                "knows you are working on it.",
               parameters: {
                 type: "object",
                 properties: {
