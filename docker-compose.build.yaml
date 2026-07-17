@@ -1,0 +1,21 @@
+# Local-dev override: build images from source instead of pulling from GHCR.
+#   docker compose -f docker-compose.yaml -f docker-compose.build.yaml up --build
+# Production (Coolify) uses docker-compose.yaml alone, which only pulls —
+# never build on the prod box.
+services:
+  livekit:
+    build:
+      context: .
+      dockerfile: docker/livekit.Dockerfile
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+  agent-bridge:
+    build:
+      context: .
+      dockerfile: apps/agent-bridge/Dockerfile
+  demo-agent:
+    build:
+      context: .
+      dockerfile: examples/demo-agent/Dockerfile

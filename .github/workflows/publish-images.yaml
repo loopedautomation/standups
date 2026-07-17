@@ -1,11 +1,12 @@
 name: Publish Images
 
-# Build the deployable Looped Meet services and push to GitHub Container
-# Registry (ghcr.io/loopedautomation/meet-<service>).
+# Build every service image on GitHub-hosted runners and push to GitHub
+# Container Registry (ghcr.io/loopedautomation/standups-<service>), so the
+# prod box never builds — its compose only pulls (see docker-compose.yaml).
 #
 # Triggers:
-#   - version tag push (e.g. v0.1.0) -> release images: :<version> + :latest
-#   - push to `main`                 -> rolling :edge image
+#   - push to `main`                 -> rolling :latest image
+#   - version tag push (e.g. v0.1.0) -> pinned :<version> image
 #   - manual dispatch
 # Every image also gets a :sha-<short> tag for traceability.
 
@@ -35,6 +36,10 @@ jobs:
             dockerfile: apps/web/Dockerfile
           - service: agent-bridge
             dockerfile: apps/agent-bridge/Dockerfile
+          - service: livekit
+            dockerfile: docker/livekit.Dockerfile
+          - service: demo-agent
+            dockerfile: examples/demo-agent/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -49,11 +54,10 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/meet-${{ matrix.service }}
+          images: ghcr.io/${{ github.repository_owner }}/standups-${{ matrix.service }}
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
 
       - uses: docker/build-push-action@v6
@@ -65,3 +69,24 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # Tell Coolify to redeploy once ALL images are published, so it pulls the
+  # freshly-pushed images instead of racing the build on git push. No-ops
+  # until the COOLIFY_DEPLOY_WEBHOOK secret is set.
+  deploy:
+    name: Trigger Coolify deploy
+    needs: publish
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify redeploy
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "No COOLIFY_DEPLOY_WEBHOOK secret set — skipping deploy trigger."
+            exit 0
+          fi
+          curl -fsSL -X GET "$WEBHOOK" ${COOLIFY_TOKEN:+-H "Authorization: Bearer $COOLIFY_TOKEN"}
+          echo "Triggered Coolify deploy."

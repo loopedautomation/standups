@@ -24,9 +24,9 @@ WORKDIR /repo
 COPY --from=deps /repo ./
 COPY packages/shared packages/shared
 COPY apps/web apps/web
-# Public env baked at build time; override NEXT_PUBLIC_LIVEKIT_URL via build arg if needed
-ARG NEXT_PUBLIC_LIVEKIT_URL=ws://localhost:7880
-ENV NEXT_PUBLIC_LIVEKIT_URL=$NEXT_PUBLIC_LIVEKIT_URL
+# NEXT_PUBLIC_LIVEKIT_URL is only read server-side at runtime (the token API
+# returns it as serverUrl) — nothing is inlined into the client bundle, so the
+# image needs no build-time env and is fully generic.
 RUN cd apps/web && pnpm build
 
 FROM node:22-alpine AS runner

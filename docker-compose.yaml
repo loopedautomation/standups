@@ -19,11 +19,12 @@ x-local-env: &local-env
     - path: .env
       required: false
 
+# Images are built by GitHub Actions and pulled from GHCR — never built on the
+# deploy host. For local from-source builds, layer in the build override:
+#   docker compose -f docker-compose.yaml -f docker-compose.build.yaml up --build
 services:
   livekit:
-    build:
-      context: .
-      dockerfile: docker/livekit.Dockerfile
+    image: ghcr.io/loopedautomation/standups-livekit:${IMAGE_TAG:-latest}
     <<: *local-env
     # Config is templated from .env — no separate livekit.yaml to keep in sync.
     # Local (defaults): advertises 127.0.0.1 so browsers on this machine work.
@@ -62,11 +63,7 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL:-ws://localhost:7880}
+    image: ghcr.io/loopedautomation/standups-web:${IMAGE_TAG:-latest}
     ports:
       - "3000:3000"
     <<: *local-env
@@ -77,7 +74,8 @@ services:
       <<: *infisical
       INFISICAL_SECRETS_PATH: "/apps/web /shared"
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
-      NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL:-ws://localhost:7880}
+      # NEXT_PUBLIC_LIVEKIT_URL (browser-facing, read server-side at runtime)
+      # comes from Infisical /apps/web in production, or .env locally.
       BRIDGE_URL: ${BRIDGE_URL:-http://agent-bridge:8090}
     depends_on:
       livekit:
@@ -96,9 +94,7 @@ services:
     restart: unless-stopped
 
   agent-bridge:
-    build:
-      context: .
-      dockerfile: apps/agent-bridge/Dockerfile
+    image: ghcr.io/loopedautomation/standups-agent-bridge:${IMAGE_TAG:-latest}
     ports:
       - "8090:8090"
     <<: *local-env
@@ -128,9 +124,7 @@ services:
 
   demo-agent:
     # Requires agent-framework >= 0.9 (tty trigger)
-    build:
-      context: .
-      dockerfile: examples/demo-agent/Dockerfile
+    image: ghcr.io/loopedautomation/standups-demo-agent:${IMAGE_TAG:-latest}
     volumes:
       - demo-agent-data:/data
     <<: *local-env

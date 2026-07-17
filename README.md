@@ -40,7 +40,9 @@ cp .env.example .env
 #  - set BRIDGE_TOKEN and SCOUT_TTY_TOKEN to random strings
 #  - set OPENAI_API_KEY   (speech-to-text / text-to-speech for agent voices)
 #  - set ANTHROPIC_API_KEY (the demo agent's model)
-docker compose up --build
+docker compose up          # pulls prebuilt images from GHCR
+# or build everything from source:
+docker compose -f docker-compose.yaml -f docker-compose.build.yaml up --build
 ```
 
 Open http://localhost:3000, create a meeting, then open the **Agents** panel and invite **Scout**.
@@ -87,9 +89,13 @@ the only env vars to set on the host (e.g. Coolify's environment tab) are:
 ```sh
 INFISICAL_CLIENT_ID=<machine identity client id>
 INFISICAL_CLIENT_SECRET=<machine identity client secret>
-NEXT_PUBLIC_LIVEKIT_URL=wss://lk.example.com   # build-time, can't come from Infisical
-LIVEKIT_USE_EXTERNAL_IP=true
+LIVEKIT_USE_EXTERNAL_IP=true   # compose-interpolation-time, can't come from Infisical
 ```
+
+`NEXT_PUBLIC_LIVEKIT_URL` is read server-side at runtime (the token API hands
+it to the browser as `serverUrl`), so despite the name it is NOT baked into
+the web build — it lives in Infisical under `/apps/web` like any other
+runtime var.
 
 The project id, API URL, and per-service secret folder paths are defaulted in
 `docker-compose.yaml`. The secret layout (documented in `.env.example`): common
@@ -101,13 +107,13 @@ before.
 
 - WebRTC media does NOT go through the proxy: expose `7881/tcp` and `51000-51100/udp` directly on the host.
 - All LiveKit config is templated from `.env` inside the compose file — there is no separate LiveKit yaml.
-- The web image bakes `NEXT_PUBLIC_LIVEKIT_URL` in at build time — rebuild if the domain changes.
+- Images are prebuilt by GitHub Actions (`.github/workflows/publish-images.yaml`) and pulled from GHCR — the deploy host never builds. If the GHCR packages are private, give the host registry credentials (e.g. Coolify's registry settings).
 - On Coolify: add the repo as a Docker Compose resource, attach the two domains to the `web` and `livekit` services, and set the env vars in the resource's environment tab.
 
 ## Deploying beyond localhost
 
 - **WebRTC needs UDP.** Expose ports `7880` (ws), `7881/tcp` and `51000-51100/udp` on your host, and set `LIVEKIT_USE_EXTERNAL_IP=true` (with `LIVEKIT_NODE_IP` empty) in `.env`. If the UDP range clashes with something on your machine, change it in `docker-compose.yaml` (both the port mapping and the templated LiveKit config).
-- **Set `NEXT_PUBLIC_LIVEKIT_URL`** to your public LiveKit URL (`wss://…` behind TLS). It's baked into the web build — pass it as a build arg (`docker compose build --build-arg NEXT_PUBLIC_LIVEKIT_URL=wss://meet.example.com:7880` or via compose `build.args`).
+- **Set `NEXT_PUBLIC_LIVEKIT_URL`** to your public LiveKit URL (`wss://…` behind TLS). It's read server-side at runtime — set it in `.env` (or Infisical `/apps/web`); no rebuild needed when it changes.
 - **Restrictive NATs / corporate firewalls** may need TURN. LiveKit ships an embedded TURN server — see the [LiveKit self-hosting guide](https://docs.livekit.io/home/self-hosting/) for the `turn:` config block and TLS certificates.
 - **Scaling**: a single node comfortably handles dozens of concurrent video participants. For multi-node LiveKit you'll need Redis — out of scope here.
 - Alternatively, point the app at **LiveKit Cloud** (set `LIVEKIT_URL`/`NEXT_PUBLIC_LIVEKIT_URL` and keys) and skip hosting the SFU entirely; you still self-host the web app, bridge, and agents.
