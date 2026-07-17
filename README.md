@@ -106,6 +106,12 @@ credentials the entrypoints are a no-op and everything runs off `.env` as
 before.
 
 - WebRTC media does NOT go through the proxy: expose `7881/tcp` and `7882/udp` directly on the host.
+- **Set `"userland-proxy": false` in `/etc/docker/daemon.json`** (then restart Docker) on any host running the LiveKit container. With the default userland proxy, Docker's proxy process occupies the published UDP media port, server-initiated ICE traffic gets source-NAT'd to random ports, and calls degrade into reconnect loops and garbled audio. This applies host-wide, so plan the Docker restart around other workloads:
+
+  ```json
+  { "userland-proxy": false }
+  ```
+- **Set `LIVEKIT_NODE_IP` to the host's public IP** on the deploy host (e.g. Coolify's env tab). It pins the address LiveKit advertises in ICE candidates — the single easiest thing to forget when migrating servers, and media silently fails without it.
 - All LiveKit config is templated from `.env` inside the compose file — there is no separate LiveKit yaml.
 - Images are prebuilt by GitHub Actions (`.github/workflows/publish-images.yaml`) and pulled from GHCR — the deploy host never builds. If the GHCR packages are private, give the host registry credentials (e.g. Coolify's registry settings).
 - On Coolify: add the repo as a Docker Compose resource, attach the two domains to the `web` and `livekit` services, and set the env vars in the resource's environment tab.
