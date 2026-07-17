@@ -110,7 +110,7 @@ export default defineAgent({
       // delay turns get committed while their transcript is still empty, so
       // the agent hears nothing (llmNode sees no user input) even though the
       // transcription panel later shows the text.
-      minEndpointingDelay: 2,
+      turnHandling: { endpointing: { minDelay: 2 } },
       stt: new openai.STT({ model: entry.stt.model }),
       tts: new openai.TTS({
         model: entry.tts.model,
