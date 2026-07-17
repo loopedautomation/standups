@@ -18,7 +18,8 @@ export function PanelHost({ slug }: { slug: string }) {
   if (!openPanel) return null
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col rounded-box bg-base-100">
+    // Phones: a full-screen overlay above the stage. Desktop: a side column.
+    <aside className="absolute inset-0 z-20 flex flex-col bg-base-100 md:static md:z-auto md:w-80 md:shrink-0 md:rounded-box">
       <div className="flex items-center justify-between border-base-300 border-b px-4 py-3">
         <h2 className="font-medium">{titles[openPanel]}</h2>
         <button
