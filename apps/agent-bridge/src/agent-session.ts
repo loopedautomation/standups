@@ -93,15 +93,6 @@ export class LoopedVoiceAgent extends voice.Agent {
 
     const iterator = brain.runTurn(text, images)
     return new ReadableStream<string>({
-      // Interruptions (someone talking over the agent) cancel this stream.
-      // Without closing the generator here its finally block never runs and
-      // the TTY client's one-turn latch stays set forever — every later turn
-      // then fails with "a TTY turn is already in progress" and the agent
-      // goes permanently silent.
-      async cancel() {
-        await iterator.return?.(undefined).catch(() => undefined)
-        callbacks.setState(state.muted ? "muted" : "listening")
-      },
       async pull(controller) {
         try {
           const { value: frame, done } = await iterator.next()
