@@ -30,6 +30,9 @@ export default function HomePage() {
       </header>
 
       <section className="flex flex-1 flex-col items-center justify-center gap-8 py-16 text-center">
+        <span className="badge badge-soft badge-primary">
+          Open source · self-hosted
+        </span>
         <h1 className="max-w-2xl text-balance font-semibold text-4xl tracking-tight sm:text-5xl">
           Give your agents a voice in your next meeting
         </h1>
@@ -42,7 +45,7 @@ export default function HomePage() {
 
       <section className="grid gap-6 pb-16 sm:grid-cols-3">
         {features.map((f) => (
-          <div key={f.title} className="card bg-base-200">
+          <div key={f.title} className="card card-border bg-base-200/20">
             <div className="card-body">
               <f.icon className="size-6 text-primary" />
               <h2 className="card-title text-base">{f.title}</h2>

@@ -5,6 +5,7 @@ import type { TokenResponse } from "@meet/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { setLogLevel } from "livekit-client"
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "react-toastify"
 import { Lobby } from "@/components/room/Lobby"
 import { MeetingView } from "@/components/room/MeetingView"
 import { WaitingRoom } from "@/components/room/WaitingRoom"
@@ -35,13 +36,11 @@ export function RoomClient({
     token: TokenResponse
     prefs: JoinPreferences
   } | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [rejoining, setRejoining] = useState(false)
   const [admitted, setAdmitted] = useState(false)
 
   const handleJoin = useCallback(
     async (prefs: JoinPreferences, rejoinToken?: string) => {
-      setError(null)
       setAdmitted(false)
       try {
         const res = await fetch(`/api/rooms/${slug}/token`, {
@@ -50,7 +49,7 @@ export function RoomClient({
           body: JSON.stringify({ displayName: prefs.displayName, rejoinToken }),
         })
         if (res.status === 404) {
-          setError(
+          toast.error(
             "This meeting doesn't exist or has already ended. Ask for a fresh link.",
           )
           return
@@ -66,7 +65,7 @@ export function RoomClient({
         } catch {}
         setSession({ token, prefs })
       } catch {
-        setError("Could not join the meeting. Please try again.")
+        toast.error("Could not join the meeting. Please try again.")
       }
     },
     [slug],
@@ -143,15 +142,28 @@ export function RoomClient({
   }
 
   if (!session) {
-    return <Lobby slug={slug} onJoin={handleJoin} error={error} />
+    return <Lobby slug={slug} onJoin={handleJoin} />
   }
 
   const inWaitingRoom = session.token.waiting && !admitted
+
+  // Phone-sized screens capture portrait video (9:16) — LiveKit's default
+  // capture presets are landscape, which is what makes a phone's camera
+  // publish a sideways-looking track. Applied as the room's capture default
+  // so later camera toggles inherit it too.
+  const portraitCapture =
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 639px)").matches
 
   return (
     <LiveKitRoom
       token={session.token.token}
       serverUrl={session.token.serverUrl}
+      options={{
+        videoCaptureDefaults: portraitCapture
+          ? { resolution: { width: 720, height: 1280 } }
+          : undefined,
+      }}
       // Waiting participants join without media; on admission WaitingRoom
       // brings devices up per the lobby preferences. Otherwise join with the
       // lobby's mic setting — unless others are already in the call, in
@@ -171,7 +183,7 @@ export function RoomClient({
       }
       onDisconnected={handleLeave}
       onError={(err) => {
-        setError(
+        toast.error(
           `Could not connect to the meeting server (${err.message}). ` +
             "Check that the LiveKit server is running and reachable.",
         )

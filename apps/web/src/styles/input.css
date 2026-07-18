@@ -1,0 +1,27 @@
+/* Looped input overrides.
+
+   1. **No focus layout shift** — daisyUI bumps `--font-size` from 0.875rem
+      to 1rem when an input gains focus (an iOS anti-zoom trick), which
+      reflows the text and nudges the layout. Pin the size to 1rem in both
+      states: stable layout, and iOS still doesn't zoom.
+
+   2. **Hairline dividers** — daisyUI's `.divider` bars are 2px; the looped
+      look wants 1px. */
+
+.input,
+.select,
+.textarea {
+  --font-size: 1rem;
+  font-size: 1rem;
+}
+
+.divider::before,
+.divider::after {
+  height: 1px;
+}
+
+.divider-horizontal::before,
+.divider-horizontal::after {
+  height: auto;
+  width: 1px;
+}

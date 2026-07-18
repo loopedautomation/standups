@@ -11,17 +11,18 @@ import {
   Bot,
   Check,
   Link as LinkIcon,
+  LogOut,
   MessageSquare,
   Mic,
   MicOff,
   MonitorUp,
-  PhoneOff,
   ScrollText,
   Users,
   Video,
   VideoOff,
 } from "lucide-react"
 import { useState } from "react"
+import { toast } from "react-toastify"
 import { $openPanel, togglePanel } from "@/stores/panels"
 
 export function ControlBar({
@@ -39,7 +40,6 @@ export function ControlBar({
     localParticipant,
   } = useLocalParticipant()
   const [copied, setCopied] = useState(false)
-  const [mediaError, setMediaError] = useState<string | null>(null)
   const openPanel = useStore($openPanel)
   const participants = useParticipants()
   const waitingCount = participants.filter(
@@ -51,7 +51,6 @@ export function ControlBar({
     what: string,
     persist?: { key: string; value: boolean },
   ) => {
-    setMediaError(null)
     if (persist) {
       try {
         localStorage.setItem(persist.key, String(persist.value))
@@ -64,7 +63,7 @@ export function ControlBar({
           : err instanceof Error
             ? err.message
             : "unknown error"
-      setMediaError(`Could not toggle ${what}: ${detail}`)
+      toast.error(`Could not toggle ${what}: ${detail}`)
     })
   }
 
@@ -96,109 +95,132 @@ export function ControlBar({
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className={`btn btn-circle ${isMicrophoneEnabled ? "btn-neutral" : "btn-error"}`}
-          onClick={() =>
-            toggle(
-              () => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled),
-              "microphone",
-              { key: "audioEnabled", value: !isMicrophoneEnabled },
-            )
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip={
+            isMicrophoneEnabled ? "Mute microphone" : "Unmute microphone"
           }
-          aria-label="Toggle microphone"
         >
-          {isMicrophoneEnabled ? (
-            <Mic className="size-5" />
-          ) : (
-            <MicOff className="size-5" />
-          )}
-        </button>
-        <button
-          type="button"
-          className={`btn btn-circle ${isCameraEnabled ? "btn-neutral" : "btn-error"}`}
-          onClick={() =>
-            toggle(
-              () => localParticipant.setCameraEnabled(!isCameraEnabled),
-              "camera",
-              { key: "videoEnabled", value: !isCameraEnabled },
-            )
-          }
-          aria-label="Toggle camera"
+          <button
+            type="button"
+            className={`btn btn-circle ${isMicrophoneEnabled ? "btn-neutral" : "btn-soft"}`}
+            onClick={() =>
+              toggle(
+                () =>
+                  localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled),
+                "microphone",
+                { key: "audioEnabled", value: !isMicrophoneEnabled },
+              )
+            }
+            aria-label="Toggle microphone"
+          >
+            {isMicrophoneEnabled ? (
+              <Mic className="size-5" />
+            ) : (
+              <MicOff className="size-5" />
+            )}
+          </button>
+        </div>
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip={isCameraEnabled ? "Turn off camera" : "Turn on camera"}
         >
-          {isCameraEnabled ? (
-            <Video className="size-5" />
-          ) : (
-            <VideoOff className="size-5" />
-          )}
-        </button>
-        <button
-          type="button"
-          className={`btn btn-circle ${isScreenShareEnabled ? "btn-primary" : "btn-neutral"}`}
-          onClick={() =>
-            toggle(
-              () =>
-                localParticipant.setScreenShareEnabled(!isScreenShareEnabled),
-              "screen share",
-            )
-          }
-          aria-label="Toggle screen share"
+          <button
+            type="button"
+            className={`btn btn-circle ${isCameraEnabled ? "btn-neutral" : "btn-soft"}`}
+            onClick={() =>
+              toggle(
+                () => localParticipant.setCameraEnabled(!isCameraEnabled),
+                "camera",
+                { key: "videoEnabled", value: !isCameraEnabled },
+              )
+            }
+            aria-label="Toggle camera"
+          >
+            {isCameraEnabled ? (
+              <Video className="size-5" />
+            ) : (
+              <VideoOff className="size-5" />
+            )}
+          </button>
+        </div>
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip={isScreenShareEnabled ? "Stop sharing" : "Share screen"}
         >
-          <MonitorUp className="size-5" />
-        </button>
-        <button
-          type="button"
-          className="btn btn-circle btn-error"
-          onClick={() => room.disconnect()}
-          aria-label="Leave meeting"
-        >
-          <PhoneOff className="size-5" />
-        </button>
-        {mediaError && (
-          <span className="max-w-64 truncate text-error text-xs">
-            {mediaError}
-          </span>
-        )}
+          <button
+            type="button"
+            className={`btn btn-circle ${isScreenShareEnabled ? "btn-primary" : "btn-neutral"}`}
+            onClick={() =>
+              toggle(
+                () =>
+                  localParticipant.setScreenShareEnabled(!isScreenShareEnabled),
+                "screen share",
+              )
+            }
+            aria-label="Toggle screen share"
+          >
+            <MonitorUp className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-bottom" data-tip="Leave meeting">
+          <button
+            type="button"
+            className="btn btn-circle btn-error"
+            onClick={() => room.disconnect()}
+            aria-label="Leave meeting"
+          >
+            <LogOut className="size-5" />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className={`btn btn-circle indicator ${openPanel === "participants" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => togglePanel("participants")}
-          aria-label="Participants"
-        >
-          {waitingCount > 0 && (
-            <span className="badge indicator-item badge-warning badge-xs">
-              {waitingCount}
-            </span>
-          )}
-          <Users className="size-5" />
-        </button>
-        <button
-          type="button"
-          className={`btn btn-circle ${openPanel === "agents" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => togglePanel("agents")}
-          aria-label="Agents"
-        >
-          <Bot className="size-5" />
-        </button>
-        <button
-          type="button"
-          className={`btn btn-circle ${openPanel === "transcript" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => togglePanel("transcript")}
-          aria-label="Transcript"
-        >
-          <ScrollText className="size-5" />
-        </button>
-        <button
-          type="button"
-          className={`btn btn-circle ${openPanel === "chat" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => togglePanel("chat")}
-          aria-label="Chat"
-        >
-          <MessageSquare className="size-5" />
-        </button>
+        <div className="tooltip tooltip-bottom" data-tip="Participants">
+          <button
+            type="button"
+            className={`btn btn-circle indicator ${openPanel === "participants" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => togglePanel("participants")}
+            aria-label="Participants"
+          >
+            {waitingCount > 0 && (
+              <span className="badge indicator-item badge-warning badge-xs">
+                {waitingCount}
+              </span>
+            )}
+            <Users className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-bottom" data-tip="Agents">
+          <button
+            type="button"
+            className={`btn btn-circle ${openPanel === "agents" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => togglePanel("agents")}
+            aria-label="Agents"
+          >
+            <Bot className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-bottom" data-tip="Transcript">
+          <button
+            type="button"
+            className={`btn btn-circle ${openPanel === "transcript" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => togglePanel("transcript")}
+            aria-label="Transcript"
+          >
+            <ScrollText className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-left" data-tip="Chat">
+          <button
+            type="button"
+            className={`btn btn-circle ${openPanel === "chat" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => togglePanel("chat")}
+            aria-label="Chat"
+          >
+            <MessageSquare className="size-5" />
+          </button>
+        </div>
       </div>
     </div>
   )

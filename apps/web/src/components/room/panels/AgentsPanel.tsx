@@ -21,6 +21,7 @@ import {
   Wrench,
 } from "lucide-react"
 import { useState } from "react"
+import { toast } from "react-toastify"
 import { useAgentState } from "@/components/room/AgentBadge"
 import { useAgentInvite } from "@/hooks/mutations/useAgentInvite"
 import { useAgents } from "@/hooks/queries/useAgents"
@@ -164,13 +165,11 @@ function InviteByUrl({ slug }: { slug: string }) {
   const [token, setToken] = useState("")
   const [voice, setVoice] = useState<string>(AGENT_VOICES[0])
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!url.trim()) return
     setBusy(true)
-    setError(null)
     try {
       const res = await fetch(`/api/rooms/${slug}/agents`, {
         method: "POST",
@@ -182,7 +181,7 @@ function InviteByUrl({ slug }: { slug: string }) {
       setUrl("")
       setToken("")
     } catch (err) {
-      setError((err as Error).message)
+      toast.error((err as Error).message)
     } finally {
       setBusy(false)
     }
@@ -218,7 +217,6 @@ function InviteByUrl({ slug }: { slug: string }) {
           </option>
         ))}
       </select>
-      {error && <p className="text-error text-xs">{error}</p>}
       <button
         type="submit"
         className="btn btn-primary btn-sm w-full"

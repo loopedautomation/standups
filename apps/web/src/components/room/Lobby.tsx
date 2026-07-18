@@ -2,6 +2,7 @@
 
 import { Mic, MicOff, Video as VideoIcon, VideoOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { toast } from "react-toastify"
 import { Wordmark } from "@/components/brand/BrandMark"
 import { ThemeToggle } from "@/components/brand/ThemeToggle"
 import type { JoinPreferences } from "@/components/room/RoomClient"
@@ -28,10 +29,9 @@ function readStoredToggle(key: string): boolean {
 type LobbyProps = {
   slug: string
   onJoin: (prefs: JoinPreferences) => Promise<void>
-  error: string | null
 }
 
-export function Lobby({ slug, onJoin, error }: LobbyProps) {
+export function Lobby({ slug, onJoin }: LobbyProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [displayName, setDisplayName] = useState(() =>
     readStoredString("displayName"),
@@ -59,6 +59,10 @@ export function Lobby({ slug, onJoin, error }: LobbyProps) {
     videoDeviceId,
     videoRef,
   })
+
+  useEffect(() => {
+    if (mediaError) toast.error(mediaError)
+  }, [mediaError])
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -185,10 +189,6 @@ export function Lobby({ slug, onJoin, error }: LobbyProps) {
                 ))}
               </select>
             </label>
-          )}
-
-          {(mediaError || error) && (
-            <p className="text-error text-sm">{mediaError ?? error}</p>
           )}
 
           <button

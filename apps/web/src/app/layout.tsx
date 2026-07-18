@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
+import { ToastContainer } from "@/components/ui/Toast"
 import "@/styles/globals.css"
 
 export const metadata: Metadata = {
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-dvh bg-base-100 text-base-content antialiased">
         {children}
+        <ToastContainer />
       </body>
     </html>
   )

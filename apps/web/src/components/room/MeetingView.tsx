@@ -120,11 +120,15 @@ export function MeetingView({
           <motion.div
             drag
             dragConstraints={stageRef}
-            dragElastic={0.25}
-            dragMomentum
-            dragTransition={{ bounceStiffness: 400, bounceDamping: 22 }}
+            dragElastic={0.1}
+            // No momentum: a fling can carry the tile past the constraint
+            // bounds and leave it stranded half off-screen (worst on touch).
+            dragMomentum={false}
             whileDrag={{ scale: 1.04 }}
-            className={`absolute bottom-6 z-10 w-32 cursor-grab shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
+            // touch-none stops mobile browsers treating the drag as a page
+            // scroll/pan, which was fighting the gesture. Rounding + shadow
+            // live together here so the shadow follows the rounded corners.
+            className={`absolute bottom-6 z-10 w-32 cursor-grab touch-none rounded-box shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
               openPanel ? "right-[22.25rem]" : "right-6"
             }`}
           >
