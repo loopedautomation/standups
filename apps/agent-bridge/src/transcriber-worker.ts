@@ -47,7 +47,8 @@ export default defineAgent({
   prewarm: async (proc: JobProcess) => {
     proc.userData.stt = await loadSttEngine()
     proc.userData.denoiser = await loadDenoiserFactory()
-    proc.userData.finalizer = await loadFinalizer()
+    // The finalizer (Parakeet, ~1 GB resident) loads lazily when a room
+    // actually starts — idle pool processes stay light.
   },
   entry: async (ctx: JobContext) => {
     const engine = ctx.proc.userData.stt as
@@ -63,10 +64,18 @@ export default defineAgent({
       | (() => Denoiser)
       | null
       | undefined
-    const finalizer = ctx.proc.userData.finalizer as
-      | Finalizer
-      | null
-      | undefined
+    // Kick off the heavyweight finalizer load now that this process serves a
+    // real room; interim text flows immediately and finals upgrade once the
+    // model is ready (streaming text is used until then).
+    if (!ctx.proc.userData.finalizerLoading) {
+      ctx.proc.userData.finalizerLoading = loadFinalizer()
+    }
+    let finalizer: Finalizer | null = null
+    void (ctx.proc.userData.finalizerLoading as Promise<Finalizer | null>).then(
+      (f) => {
+        finalizer = f
+      },
+    )
 
     await ctx.connect()
     const local = ctx.room.localParticipant

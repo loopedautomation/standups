@@ -113,6 +113,9 @@ const server = new AgentServer(
   new ServerOptions({
     agent: new URL("./worker.js", import.meta.url).pathname,
     agentName: "looped-bridge",
+    // One idle process is plenty for a small deployment; each prewarmed
+    // process holds the VAD model in memory.
+    numIdleProcesses: 1,
     requestFunc: acceptRequest,
     wsURL: LIVEKIT_URL,
     apiKey: process.env.LIVEKIT_API_KEY,
@@ -135,6 +138,9 @@ if (process.env.TRANSCRIBER_ENABLED !== "false") {
     new ServerOptions({
       agent: new URL("./transcriber-worker.js", import.meta.url).pathname,
       requestFunc: acceptTranscriberRequest,
+      // Transcriber processes are heavy (streaming ASR models); keep a
+      // single warm spare. The finalizer loads lazily per active room.
+      numIdleProcesses: 1,
       wsURL: LIVEKIT_URL,
       apiKey: process.env.LIVEKIT_API_KEY,
       apiSecret: process.env.LIVEKIT_API_SECRET,
