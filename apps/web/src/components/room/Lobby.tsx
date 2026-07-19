@@ -107,7 +107,7 @@ export function Lobby({ slug, onJoin }: LobbyProps) {
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2">
             <button
               type="button"
-              className={`btn btn-circle ${audioEnabled ? "btn-neutral" : "btn-error"}`}
+              className="btn btn-circle btn-neutral"
               onClick={() => setAudioEnabled((v) => !v)}
               aria-label={
                 audioEnabled ? "Mute microphone" : "Unmute microphone"
@@ -121,7 +121,7 @@ export function Lobby({ slug, onJoin }: LobbyProps) {
             </button>
             <button
               type="button"
-              className={`btn btn-circle ${videoEnabled ? "btn-neutral" : "btn-error"}`}
+              className="btn btn-circle btn-neutral"
               onClick={() => setVideoEnabled((v) => !v)}
               aria-label={videoEnabled ? "Turn camera off" : "Turn camera on"}
             >

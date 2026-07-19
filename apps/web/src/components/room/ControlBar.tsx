@@ -177,7 +177,7 @@ export function ControlBar({
           >
             <button
               type="button"
-              className={`btn btn-circle join-item ${isMicrophoneEnabled ? "btn-neutral" : "btn-error"}`}
+              className="btn btn-circle join-item btn-neutral"
               onClick={toggleMic}
               aria-label="Toggle microphone"
             >
@@ -199,7 +199,7 @@ export function ControlBar({
           >
             <button
               type="button"
-              className={`btn btn-circle join-item ${isCameraEnabled ? "btn-neutral" : "btn-error"}`}
+              className="btn btn-circle join-item btn-neutral"
               onClick={toggleCamera}
               aria-label="Toggle camera"
             >
