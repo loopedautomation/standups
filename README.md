@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme-cover.png">
+  <img alt="Looped Meet" src=".github/readme-cover-light.png" width="100%">
+</picture>
+
 # Looped Meet
 
 Open-source, self-hostable video meetings with **first-class AI agent participants**, powered by [LiveKit](https://livekit.io) and the [Looped agent framework](https://github.com/loopedautomation/agent-framework).
