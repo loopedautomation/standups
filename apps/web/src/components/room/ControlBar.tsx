@@ -10,7 +10,7 @@ import {
 } from "@livekit/components-react"
 import { HAND_ATTRIBUTE, parseParticipantMeta } from "@meet/shared"
 import { useStore } from "@nanostores/react"
-import { ConnectionQuality } from "livekit-client"
+import { ConnectionQuality, type LocalParticipant } from "livekit-client"
 import {
   Bot,
   Check,
@@ -61,15 +61,7 @@ export function ControlBar({
   const blur = useStore($blur)
   useBackgroundBlur(blur)
 
-  const { attributes } = useParticipantAttributes({
-    participant: localParticipant,
-  })
-  const handRaised = attributes?.[HAND_ATTRIBUTE] === "1"
-  const toggleHand = () => {
-    void localParticipant
-      .setAttributes({ [HAND_ATTRIBUTE]: handRaised ? "" : "1" })
-      .catch(() => undefined)
-  }
+  const { handRaised, toggleHand } = useRaiseHand(localParticipant)
 
   // Warn once per dip when this participant's own connection degrades.
   const { quality } = useConnectionQualityIndicator({
@@ -339,6 +331,39 @@ export function ControlBar({
       </div>
     </div>
   )
+}
+
+/**
+ * Raise/lower hand via a LiveKit participant attribute. Keeps an optimistic
+ * local state so the button flips on click instead of waiting for the attribute
+ * to round-trip, reverts (and surfaces a toast) if the write is rejected, and
+ * clears the override once the server echoes the change back.
+ */
+function useRaiseHand(localParticipant: LocalParticipant) {
+  const { attributes } = useParticipantAttributes({
+    participant: localParticipant,
+  })
+  const attrHandRaised = attributes?.[HAND_ATTRIBUTE] === "1"
+  const [optimisticHand, setOptimisticHand] = useState<boolean | null>(null)
+  const handRaised = optimisticHand ?? attrHandRaised
+  useEffect(() => {
+    if (optimisticHand !== null && attrHandRaised === optimisticHand) {
+      setOptimisticHand(null)
+    }
+  }, [attrHandRaised, optimisticHand])
+  const toggleHand = () => {
+    const next = !handRaised
+    setOptimisticHand(next)
+    localParticipant
+      .setAttributes({ [HAND_ATTRIBUTE]: next ? "1" : "" })
+      .catch((err: unknown) => {
+        // Roll the button back and tell the user, rather than silently no-op.
+        setOptimisticHand(null)
+        const detail = err instanceof Error ? err.message : "unknown error"
+        toast.error(`Could not ${next ? "raise" : "lower"} hand: ${detail}`)
+      })
+  }
+  return { handRaised, toggleHand }
 }
 
 /** Elapsed time since the room was created — shared anchor for everyone. */

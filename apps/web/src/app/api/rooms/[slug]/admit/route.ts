@@ -65,7 +65,9 @@ export async function POST(request: Request, { params }: Params) {
       canSubscribe: true,
       canPublishData: true,
       canPublishSources: [],
-      canUpdateMetadata: false,
+      // Admitted participants can raise their hand / set attributes, matching
+      // the grant fresh joiners get in the token route.
+      canUpdateMetadata: true,
       hidden: false,
       canSubscribeMetrics: false,
       recorder: false,

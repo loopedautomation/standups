@@ -164,6 +164,9 @@ export async function POST(request: Request, { params }: Params) {
     canPublish: !waiting,
     canSubscribe: !waiting,
     canPublishData: !waiting,
+    // Lets the participant set their own attributes (e.g. raise hand, away)
+    // and update their own metadata via setAttributes/setMetadata.
+    canUpdateOwnMetadata: !waiting,
   })
 
   // Prefer the stamped start moment; rooms predating it (or open
