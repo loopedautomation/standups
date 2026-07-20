@@ -245,7 +245,13 @@ export function ControlBar({
             onClick={() =>
               toggle(
                 () =>
-                  localParticipant.setScreenShareEnabled(!isScreenShareEnabled),
+                  localParticipant.setScreenShareEnabled(
+                    !isScreenShareEnabled,
+                    // Exclude this tab from the picker: sharing the meeting's own
+                    // tab points the capture back at itself and spirals into a
+                    // hall-of-mirrors feedback loop (see #23).
+                    { selfBrowserSurface: "exclude" },
+                  ),
                 "screen share",
               )
             }
