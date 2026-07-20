@@ -325,7 +325,7 @@ export function ControlBar({
             <MessageSquare className="size-5" />
           </button>
         </div>
-        <div className="tooltip tooltip-left" data-tip="Settings">
+        <div className="tooltip tooltip-bottom" data-tip="Settings">
           <button
             type="button"
             className={`btn btn-circle ${openPanel === "settings" ? "btn-primary" : "btn-ghost"}`}

@@ -216,7 +216,7 @@ function InviteByUrl({ slug }: { slug: string }) {
       </p>
       <input
         className="input input-sm w-full"
-        placeholder="my-agent.example.com"
+        placeholder="your-agent.lpd.sh"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
       />
@@ -350,7 +350,9 @@ function ControlButton({
   children: React.ReactNode
 }) {
   return (
-    <div className="tooltip tooltip-left" data-tip={tip}>
+    // Above the button: the panel is too narrow for a side tip, which gets
+    // clipped by the scroll container's edge.
+    <div className="tooltip tooltip-top" data-tip={tip}>
       <button
         type="button"
         title={tip}

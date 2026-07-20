@@ -49,19 +49,3 @@ agents:
       model: gpt-4o-mini-tts
       voice: ash
 
-  - id: gh-issues-bot
-    name: GH Issues Bot
-    description: Files and looks up GitHub issues from the conversation.
-    greeting: "Hi, I'm the GH Issues Bot. Mention me to file or check issues."
-    turn_policy: on-mention
-    brain:
-      kind: tty
-      url: wss://gh-issues-bot.lpd.sh/tty
-      token_env: GH_ISSUES_BOT_TTY_TOKEN
-    stt:
-      provider: openai
-      model: gpt-4o-mini-transcribe
-    tts:
-      provider: openai
-      model: gpt-4o-mini-tts
-      voice: sage
