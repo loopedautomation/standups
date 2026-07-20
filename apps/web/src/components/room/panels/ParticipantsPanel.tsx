@@ -1,14 +1,51 @@
 "use client"
 
-import { useLocalParticipant, useParticipants } from "@livekit/components-react"
+import {
+  useIsMuted,
+  useLocalParticipant,
+  useParticipants,
+} from "@livekit/components-react"
 import { parseParticipantMeta } from "@meet/shared"
-import { Bot, Check, User, X } from "lucide-react"
+import { useStore } from "@nanostores/react"
+import type { Participant } from "livekit-client"
+import { Track } from "livekit-client"
+import { Bot, Check, MicOff, User, UserX, X } from "lucide-react"
 import { useState } from "react"
+import { toast } from "react-toastify"
+import { $isHost } from "@/stores/host"
 
 export function ParticipantsPanel({ slug }: { slug: string }) {
   const participants = useParticipants()
   const { localParticipant } = useLocalParticipant()
   const [busy, setBusy] = useState<string | null>(null)
+  const isHost = useStore($isHost)
+  // Removal asks first — the row's X becomes a confirm button.
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  const moderate = async (identity: string, action: "remove" | "mute") => {
+    let hostKey: string | null = null
+    try {
+      hostKey = localStorage.getItem(`hostKey:${slug}`)
+    } catch {}
+    if (!hostKey) {
+      toast.error("Only the meeting's organiser can do that.")
+      return
+    }
+    setBusy(identity)
+    try {
+      const res = await fetch(`/api/rooms/${slug}/moderate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ identity, action, hostKey }),
+      })
+      if (!res.ok) throw new Error(`could not ${action} participant`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(null)
+      setConfirming(null)
+    }
+  }
 
   const kind = (metadata?: string) => parseParticipantMeta(metadata)?.kind
   const waiting = participants.filter((p) => kind(p.metadata) === "waiting")
@@ -80,7 +117,7 @@ export function ParticipantsPanel({ slug }: { slug: string }) {
         {inMeeting.map((p) => (
           <li
             key={p.identity}
-            className="flex items-center gap-3 rounded-field p-2"
+            className="flex items-center gap-2 rounded-field p-2"
           >
             {kind(p.metadata) === "agent" ? (
               <Bot className="size-4 shrink-0 text-primary" />
@@ -91,9 +128,80 @@ export function ParticipantsPanel({ slug }: { slug: string }) {
               {p.name || p.identity}
               {p.isLocal && " (you)"}
             </span>
+            {isHost && !p.isLocal && (
+              <>
+                <MuteButton
+                  participant={p}
+                  disabled={busy === p.identity}
+                  onMute={() => moderate(p.identity, "mute")}
+                />
+                {confirming === p.identity ? (
+                  <button
+                    type="button"
+                    className="btn btn-error btn-xs"
+                    disabled={busy === p.identity}
+                    onClick={() => moderate(p.identity, "remove")}
+                    onBlur={() => setConfirming(null)}
+                  >
+                    Remove?
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs text-error"
+                    aria-label={`Remove ${p.name || p.identity} from the meeting`}
+                    title="Remove from the meeting"
+                    onClick={() => setConfirming(p.identity)}
+                  >
+                    <UserX className="size-4" />
+                  </button>
+                )}
+              </>
+            )}
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+/**
+ * Silence someone's mic. One-way by design: only its owner can turn a mic
+ * back on, so the button reads as already-done once they're muted.
+ */
+function MuteButton({
+  participant,
+  disabled,
+  onMute,
+}: {
+  participant: Participant
+  disabled: boolean
+  onMute: () => void
+}) {
+  const muted = useIsMuted({
+    participant,
+    source: Track.Source.Microphone,
+  })
+  if (muted) {
+    return (
+      <span
+        className="px-1 text-base-content/40"
+        title="Microphone is off — only they can turn it back on"
+      >
+        <MicOff className="size-4" />
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost btn-xs"
+      disabled={disabled}
+      aria-label={`Mute ${participant.name || participant.identity}`}
+      title="Mute — only they can unmute themselves"
+      onClick={onMute}
+    >
+      <MicOff className="size-4" />
+    </button>
   )
 }

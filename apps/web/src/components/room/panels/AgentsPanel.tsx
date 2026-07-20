@@ -1,36 +1,17 @@
 "use client"
 
+import { useDataChannel, useParticipants } from "@livekit/components-react"
 import {
-  useDataChannel,
-  useParticipantAttributes,
-  useParticipants,
-} from "@livekit/components-react"
-import {
-  AGENT_POLICY_ATTRIBUTE,
   AGENT_VOICES,
   type AgentActivityEvent,
-  type AgentControl,
   DataTopic,
   parseParticipantMeta,
-  type TurnPolicy,
 } from "@meet/shared"
 import { useStore } from "@nanostores/react"
-import type { Participant } from "livekit-client"
-import {
-  Bot,
-  Ear,
-  EarOff,
-  Hand,
-  Mic,
-  MicOff,
-  Plus,
-  UserX,
-  Wrench,
-  Zap,
-} from "lucide-react"
+import { Bot, Plus, Wrench } from "lucide-react"
 import { useState } from "react"
 import { toast } from "react-toastify"
-import { useAgentState } from "@/components/room/AgentBadge"
+import { AgentControls } from "@/components/room/AgentControls"
 import {
   type AgentMode,
   useAgentInvite,
@@ -95,7 +76,8 @@ export function AgentsPanel({ slug }: { slug: string }) {
               </div>
               {participant ? (
                 isHost ? (
-                  <InRoomControls
+                  <AgentControls
+                    withCaption
                     agentId={agent.id}
                     participant={participant}
                     onRemove={() =>
@@ -286,156 +268,6 @@ function InviteByUrl({ slug }: { slug: string }) {
         Invite agent
       </button>
     </form>
-  )
-}
-
-function InRoomControls({
-  agentId,
-  participant,
-  onRemove,
-  sendControl,
-}: {
-  agentId: string
-  participant: Participant
-  onRemove: () => void
-  sendControl: (control: AgentControl) => void
-}) {
-  const state = useAgentState(participant)
-  const { attributes } = useParticipantAttributes({ participant })
-  const policy = (attributes?.[AGENT_POLICY_ATTRIBUTE] ?? "open") as TurnPolicy
-  const deafened = state === "deafened"
-  const muted = state === "muted"
-  const zapped = state === "zapped"
-  const gated = policy === "on-mention"
-
-  const zapTip = zapped
-    ? "Zapped — responding freely for 30 seconds"
-    : "Zap: responds to everything for 30 seconds"
-  const muteTip = muted
-    ? "Unmute — let the agent speak aloud"
-    : "Mute — the agent replies in chat instead"
-  const deafenTip = deafened
-    ? "Undeafen — let the agent hear the meeting"
-    : "Deafen — the agent stops hearing the meeting"
-
-  // Tooltips clip against the panel's scroll container, and no bubble
-  // direction fits every button in a 22rem panel — so the tip renders as a
-  // caption line under the controls instead (hover or keyboard focus).
-  const [tip, setTip] = useState<string | null>(null)
-
-  return (
-    <div>
-      <div
-        className="flex items-center gap-1"
-        onMouseLeave={() => setTip(null)}
-      >
-        <ControlButton
-          onTip={setTip}
-          tip={
-            gated
-              ? "Hand-raising on — speaks only when addressed or called on"
-              : "Hand-raising off — speaks whenever it has something to say"
-          }
-          state={gated ? "on" : "off"}
-          onClick={() =>
-            sendControl({
-              type: "set-turn-policy",
-              agentId,
-              policy: gated ? "open" : "on-mention",
-            })
-          }
-        >
-          <Hand className="size-4" />
-        </ControlButton>
-        <ControlButton
-          onTip={setTip}
-          tip={zapTip}
-          state={zapped ? "on" : "off"}
-          onClick={() => sendControl({ type: "zap", agentId })}
-        >
-          <Zap className="size-4" />
-        </ControlButton>
-        {/* Mic and ears read as capabilities: green while the agent has them,
-          red once a host takes one away. */}
-        <ControlButton
-          onTip={setTip}
-          tip={muteTip}
-          state={muted ? "revoked" : "on"}
-          onClick={() =>
-            sendControl({ type: muted ? "unmute" : "mute", agentId })
-          }
-        >
-          {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-        </ControlButton>
-        <ControlButton
-          onTip={setTip}
-          tip={deafenTip}
-          state={deafened ? "revoked" : "on"}
-          onClick={() =>
-            sendControl({ type: deafened ? "undeafen" : "deafen", agentId })
-          }
-        >
-          {deafened ? (
-            <EarOff className="size-4" />
-          ) : (
-            <Ear className="size-4" />
-          )}
-        </ControlButton>
-        <ControlButton
-          onTip={setTip}
-          tip="Remove the agent from the meeting"
-          state="danger"
-          onClick={onRemove}
-        >
-          <UserX className="size-4" />
-        </ControlButton>
-      </div>
-      <p className="min-h-4 pt-1 text-[11px] text-base-content/50 leading-tight">
-        {tip}
-      </p>
-    </div>
-  )
-}
-
-/**
- * An agent control: icon button with a hover tooltip and matching label.
- * Colour carries the meaning — green while a capability or mode is on, red
- * once the host has taken it away, neutral for an unset mode.
- */
-function ControlButton({
-  tip,
-  state,
-  onClick,
-  onTip,
-  children,
-}: {
-  tip: string
-  state: "on" | "off" | "revoked" | "danger"
-  onClick: () => void
-  /** Reports the tip to show in the shared caption line (null to clear). */
-  onTip: (tip: string | null) => void
-  children: React.ReactNode
-}) {
-  const tone =
-    state === "on"
-      ? "btn-success"
-      : state === "revoked"
-        ? "btn-error"
-        : state === "danger"
-          ? "btn-ghost text-error"
-          : "btn-ghost"
-  return (
-    <button
-      type="button"
-      aria-label={tip}
-      className={`btn btn-circle btn-sm ${tone}`}
-      onClick={onClick}
-      onMouseEnter={() => onTip(tip)}
-      onFocus={() => onTip(tip)}
-      onBlur={() => onTip(null)}
-    >
-      {children}
-    </button>
   )
 }
 

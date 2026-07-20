@@ -11,10 +11,13 @@ import {
   VideoTrack,
 } from "@livekit/components-react"
 import { DataTopic, HAND_ATTRIBUTE, parseParticipantMeta } from "@meet/shared"
+import { useStore } from "@nanostores/react"
 import { ConnectionQuality, Track } from "livekit-client"
 import { Hand, MicOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { AgentBadge, useAgentState } from "@/components/room/AgentBadge"
+import { AgentTileControls } from "@/components/room/AgentControls"
+import { $isHost } from "@/stores/host"
 
 type ParticipantTileProps = {
   trackRef: TrackReferenceOrPlaceholder
@@ -36,6 +39,7 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
   const handUp = attributes?.[HAND_ATTRIBUTE] === "1"
   const agentState = useAgentState(participant)
   const { send: sendControl } = useDataChannel(DataTopic.AgentControl)
+  const isHost = useStore($isHost)
   const name = participant.name || participant.identity
   const hasVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted
   // A phone in portrait publishes a taller-than-wide track; cropping it into
@@ -132,6 +136,12 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
           <Hand className="size-3" />
           Interrupt
         </button>
+      )}
+
+      {/* The host's full agent controls, stacked along the tile's right
+          edge. Hidden on compact tiles — no room, and the panel covers it. */}
+      {isAgent && meta?.agentId && isHost && !compact && (
+        <AgentTileControls agentId={meta.agentId} participant={participant} />
       )}
 
       {handUp && (
