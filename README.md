@@ -108,12 +108,6 @@ Repo layout:
 
 The looped look lives in `apps/web/src/styles/` as DaisyUI themes (`themes.css`, OKLCH tokens). Swap the two theme blocks for your own brand colors and the whole app follows — no component changes needed.
 
-## Roadmap
-
-- Host controls (lock room, remove human participants)
-- Server-side cancel frame in the TTY protocol — today, aborting a task detaches it ([agent-framework#153](https://github.com/loopedautomation/agent-framework/issues/153))
-- Multi-node LiveKit (Redis) deployment story
-
 ## License
 
 [Apache 2.0](./LICENSE)
