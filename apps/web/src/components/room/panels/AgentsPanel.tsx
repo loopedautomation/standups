@@ -244,50 +244,82 @@ function InRoomControls({
   const state = useAgentState(participant)
   const deafened = state === "deafened"
   const muted = state === "muted"
+  const awake = state === "awake"
+
+  const pokeTip = awake
+    ? "Awake — responding freely for a minute"
+    : "Poke: responds to everything for a minute"
+  const muteTip = muted
+    ? "Unmute — let the agent speak aloud"
+    : "Mute — the agent replies in chat instead"
+  const deafenTip = deafened
+    ? "Undeafen — let the agent hear the meeting"
+    : "Deafen — the agent stops hearing the meeting"
 
   return (
     <div className="flex items-center gap-1">
-      <button
-        type="button"
-        className="btn btn-ghost btn-circle btn-sm"
-        aria-label="Poke agent (listens and responds for a minute)"
+      <ControlButton
+        tip={pokeTip}
+        active={awake}
         onClick={() => sendControl({ type: "poke", agentId })}
       >
         <Zap className="size-4" />
-      </button>
-      <button
-        type="button"
-        className={`btn btn-circle btn-sm ${muted ? "btn-warning" : "btn-ghost"}`}
-        aria-label={
-          muted ? "Unmute agent (can speak)" : "Mute agent (replies in chat)"
-        }
+      </ControlButton>
+      <ControlButton
+        tip={muteTip}
+        active={muted}
         onClick={() =>
           sendControl({ type: muted ? "unmute" : "mute", agentId })
         }
       >
         {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-      </button>
-      <button
-        type="button"
-        className={`btn btn-circle btn-sm ${deafened ? "btn-warning" : "btn-ghost"}`}
-        aria-label={
-          deafened
-            ? "Undeafen agent (resume listening)"
-            : "Deafen agent (stops hearing)"
-        }
+      </ControlButton>
+      <ControlButton
+        tip={deafenTip}
+        active={deafened}
         onClick={() =>
           sendControl({ type: deafened ? "undeafen" : "deafen", agentId })
         }
       >
         {deafened ? <EarOff className="size-4" /> : <Ear className="size-4" />}
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-circle btn-sm text-error"
-        aria-label="Remove agent from meeting"
+      </ControlButton>
+      <ControlButton
+        tip="Remove the agent from the meeting"
+        danger
         onClick={onRemove}
       >
         <UserX className="size-4" />
+      </ControlButton>
+    </div>
+  )
+}
+
+/** An agent control: icon button with a hover tooltip and matching label. */
+function ControlButton({
+  tip,
+  active,
+  danger,
+  onClick,
+  children,
+}: {
+  tip: string
+  active?: boolean
+  danger?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="tooltip tooltip-left" data-tip={tip}>
+      <button
+        type="button"
+        title={tip}
+        aria-label={tip}
+        className={`btn btn-circle btn-sm ${
+          active ? "btn-warning" : danger ? "btn-ghost text-error" : "btn-ghost"
+        }`}
+        onClick={onClick}
+      >
+        {children}
       </button>
     </div>
   )

@@ -51,6 +51,30 @@ export function getDynamicAgent(id: string): DynamicAgentSpec | null {
 }
 
 /**
+ * Turn whatever a person pastes into a dialable TTY websocket URL, or null
+ * if it can't be one. Bare domains get wss:// and the conventional /tty
+ * path; http(s) schemes are mapped to their websocket equivalents.
+ */
+export function normalizeAgentUrl(input: string): string | null {
+  let raw = input.trim()
+  if (!raw) return null
+  if (!/^[a-z]+:\/\//i.test(raw)) raw = `wss://${raw}`
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol === "https:") parsed.protocol = "wss:"
+  if (parsed.protocol === "http:") parsed.protocol = "ws:"
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null
+  if (parsed.pathname === "" || parsed.pathname === "/") {
+    parsed.pathname = "/tty"
+  }
+  return parsed.toString()
+}
+
+/**
  * Validate a pasted agent URL by performing the TTY handshake: connect with
  * the bearer subprotocol and wait for the `hello` frame, which carries the
  * agent's handle.
@@ -59,16 +83,6 @@ export async function probeAgent(
   url: string,
   token: string,
 ): Promise<{ name: string } | { error: string }> {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return { error: "invalid url" }
-  }
-  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    return { error: "url must be ws:// or wss://" }
-  }
-
   return new Promise((resolve) => {
     let settled = false
     const done = (result: { name: string } | { error: string }) => {

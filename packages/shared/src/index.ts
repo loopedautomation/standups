@@ -50,6 +50,8 @@ export const agentStateSchema = z.enum([
   // The agent has something to contribute but its turn policy keeps it
   // quiet until a participant calls on it.
   "hand-raised",
+  // Poked: temporarily responding to everything, no mention needed.
+  "awake",
 ])
 export type AgentState = z.infer<typeof agentStateSchema>
 

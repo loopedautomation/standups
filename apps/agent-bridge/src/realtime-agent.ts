@@ -164,6 +164,10 @@ export async function runRealtimeAgent(opts: {
   const gated = entry.turn_policy === "on-mention"
   let handRaised = false
   let pokeTimer: ReturnType<typeof setTimeout> | null = null
+  let pokedUntil = 0
+  /** What "at rest" looks like right now: awake during a poke window. */
+  const idleState = () =>
+    state.muted ? "muted" : Date.now() < pokedUntil ? "awake" : "listening"
 
   const session = new RealtimeSession({
     model: realtime.model,
@@ -210,7 +214,7 @@ export async function runRealtimeAgent(opts: {
     },
     onIdle: () => {
       if (handRaised && !state.muted) return
-      callbacks.setState(state.muted ? "muted" : "listening")
+      callbacks.setState(idleState())
     },
     onError: (msg) => {
       console.error(`[${entry.id}] realtime: ${msg}`)
@@ -325,20 +329,23 @@ export async function runRealtimeAgent(opts: {
       if (control.agentId !== entry.id) return
       if (control.type === "interrupt") {
         hardCut()
-        callbacks.setState(state.muted ? "muted" : "listening")
+        callbacks.setState(idleState())
       } else if (control.type === "call-on") {
         handRaised = false
         session.callOn()
       } else if (control.type === "poke") {
         // Wake the agent: gate lifted (or unmuted) for a minute, then back
-        // to normal. A fresh poke extends the window.
+        // to normal. A fresh poke extends the window. The "awake" state is
+        // the visible indicator that the poke took.
         handRaised = false
         state.muted = false
+        pokedUntil = Date.now() + POKE_WINDOW_MS
         session.setGateOpen(true)
-        callbacks.setState("listening")
+        callbacks.setState("awake")
         if (pokeTimer) clearTimeout(pokeTimer)
         pokeTimer = setTimeout(() => {
           pokeTimer = null
+          pokedUntil = 0
           if (gated) {
             session.setGateOpen(false)
           } else {
