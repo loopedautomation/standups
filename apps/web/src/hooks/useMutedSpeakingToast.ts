@@ -36,7 +36,14 @@ export function useMutedSpeakingToast() {
           Track.Source.Microphone,
         )
         const existing = pub?.track?.mediaStreamTrack
-        let track = existing && existing.readyState === "live" ? existing : null
+        // Muting the mic in LiveKit disables its MediaStreamTrack rather than
+        // stopping it: the track stays "live" but delivers pure silence, so the
+        // analyser would never see speech. Only reuse a track that is still
+        // enabled; otherwise open our own capture for the duration of the mute.
+        let track =
+          existing && existing.readyState === "live" && existing.enabled
+            ? existing
+            : null
         if (!track) {
           ownStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
