@@ -111,7 +111,7 @@ The looped look lives in `apps/web/src/styles/` as DaisyUI themes (`themes.css`,
 ## Roadmap
 
 - Host controls (lock room, remove human participants)
-- Server-side cancel frame in the TTY protocol (today, aborting a task detaches it)
+- Server-side cancel frame in the TTY protocol — today, aborting a task detaches it ([agent-framework#153](https://github.com/loopedautomation/agent-framework/issues/153))
 - Multi-node LiveKit (Redis) deployment story
 
 ## License
