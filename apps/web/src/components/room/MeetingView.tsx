@@ -83,10 +83,14 @@ export function MeetingView({
       >
         {focused ? (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-            {/* Participants sit in a horizontal strip above the share. */}
-            <div className="flex h-24 shrink-0 flex-row gap-3 overflow-x-auto md:h-28">
+            {/* Participants sit in a horizontal strip above the share,
+                centered and sized to match the draggable self-view. */}
+            <div className="flex shrink-0 flex-row flex-wrap justify-center gap-3 overflow-x-auto">
               {remoteTracks.map((trackRef) => (
-                <div key={trackRef.participant.identity} className="w-36 shrink-0">
+                <div
+                  key={trackRef.participant.identity}
+                  className="w-32 shrink-0 sm:w-56"
+                >
                   <ParticipantTile trackRef={trackRef} compact />
                 </div>
               ))}
