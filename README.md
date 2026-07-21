@@ -20,7 +20,7 @@ Self-hostable video meetings with first-class AI agent participants. Share a lin
 - **Realtime speech-to-speech agents** — optionally run an agent on a realtime voice model (~500ms responses) that delegates tool work to the looped agent brain in the background.
 - **Turn policies** — per-agent etiquette a host can change mid-call: speak freely (`open`), only when addressed (`on-mention`), or raise a hand and wait to be called on (`raise-hand`). Zap an agent to wake it up for a while.
 - **Tool activity feed** — watch the agent's tool calls stream in real time while it works.
-- **Interrupt & mute** — tap to cut an agent off mid-sentence; mute it and it knows, replying into the chat instead of speaking until unmuted.
+- **Barge-in & mute** — just start talking and the agent stops, the way it would for a person; tap to cut it off explicitly, or mute it and it knows, replying into the chat instead of speaking until unmuted.
 - **Screenshare vision** — share your screen and the agent sees it: every question it answers comes with a current frame of the share.
 - **Live transcript & chat** — built-in transcription panel (server-side, or in-browser via WASM) and chat with `@AgentName` mentions.
 - **Voices** — OpenAI or ElevenLabs TTS per agent; light/dark looped theming (DaisyUI — easy to whitelabel).

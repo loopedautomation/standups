@@ -23,6 +23,7 @@ import {
   type ParticipantMeta,
 } from "@meet/shared"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
+import { bargeInConfigFromEnv } from "./barge-in.js"
 import { getDynamicAgent } from "./dynamic.js"
 import { LoopedTtyClient } from "./looped-tty.js"
 import { type Brain, LoopedWebhookClient } from "./looped-webhook.js"
@@ -41,6 +42,9 @@ type DispatchMeta = { agentId: string; mode?: "realtime" | "pipeline" }
 
 /** How long a zapped agent answers freely before its policy resumes. */
 const ZAP_WINDOW_MS = 30_000
+
+/** Barge-in thresholds, shared by the realtime and pipeline paths. */
+const bargeIn = bargeInConfigFromEnv()
 
 /** A registry entry plus, for dynamic (URL-invited) agents, its token. */
 type ResolvedEntry = AgentEntry & { directToken?: string }
@@ -264,10 +268,19 @@ export default defineAgent({
         state: sessionState,
         callbacks: { publishActivity, publishChat, setState },
         screen,
+        // Half-duplex keeps room audio away from the realtime model while it
+        // speaks, so barge-in has to be heard locally. Same prewarmed VAD the
+        // pipeline path uses for turn detection.
+        vad: ctx.proc.userData.vad as silero.VAD | undefined,
         context: meetingContext,
       })
       return
     }
+
+    // Seconds, matching how the knob has always been documented and set —
+    // the SDK's own field is milliseconds.
+    const endpointMinDelayMs =
+      Number(process.env.PIPELINE_ENDPOINT_MIN_DELAY ?? 4) * 1000
 
     const agent = new LoopedVoiceAgent(
       entry,
@@ -289,7 +302,18 @@ export default defineAgent({
       // because it's a latency/reliability trade per deployment.
       turnHandling: {
         endpointing: {
-          minDelay: Number(process.env.PIPELINE_ENDPOINT_MIN_DELAY ?? 4),
+          minDelay: endpointMinDelayMs,
+          // maxDelay is the hard stop on a turn, and its default (3s) sits
+          // below the delay above — leave it and the turn fires early,
+          // making minDelay look like it did nothing.
+          maxDelay: Math.max(endpointMinDelayMs + 1000, 3000),
+        },
+        // Barge-in for the pipeline path. The SDK enables interruptions by
+        // default; this pins the same thresholds the realtime path uses, so
+        // both modes feel alike and tune from one place.
+        interruption: {
+          enabled: bargeIn.enabled,
+          minDuration: bargeIn.minSpeechMs,
         },
       },
       stt: new openai.STT({ model: entry.stt.model }),
@@ -316,6 +340,9 @@ export default defineAgent({
         "text-to-speech": `${entry.tts.provider}/${entry.tts.model}`,
         voice: entry.tts.voice,
         "turn detection": "vad",
+        "barge-in": bargeIn.enabled
+          ? `vad, ${bargeIn.minSpeechMs}ms sustained`
+          : "off (manual interrupt only)",
         "noise suppression": "room transcriber (gtcrn)",
       } as Record<string, string>,
       latencyMs: {} as Record<string, number>,
