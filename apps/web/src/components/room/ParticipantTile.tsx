@@ -75,7 +75,7 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
           ? "bg-[color-mix(in_oklch,var(--color-primary)_20%,var(--color-base-300))] ring-1 ring-primary/40"
           : "bg-base-300"
       } ${speaking ? "ring-2 ring-primary" : ""} ${
-        handUp ? "outline-2 outline-success outline-offset-2" : ""
+        handUp ? "outline-2 outline-warning outline-offset-2" : ""
       } ${
         compact
           ? `${portrait ? "aspect-[9/16]" : "aspect-video"} shrink-0`
@@ -136,7 +136,7 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
       )}
 
       {handUp && (
-        <span className="badge badge-soft badge-success badge-sm absolute top-2 left-2 z-10 gap-1">
+        <span className="badge badge-soft badge-warning badge-sm absolute top-2 left-2 z-10 gap-1">
           <Hand className="size-3" />
           Hand raised
         </span>
