@@ -5,6 +5,7 @@ export const DataTopic = {
   AgentActivity: "agent-activity",
   AgentControl: "agent-control",
   Chat: "chat",
+  Doc: "doc",
   ScreenShare: "screen-share",
 } as const
 
@@ -273,6 +274,57 @@ export const chatMessageSchema = z.object({
   at: z.number(),
 })
 export type ChatMessage = z.infer<typeof chatMessageSchema>
+
+/**
+ * The meeting's shared markdown document, on the `doc` topic.
+ *
+ * Whole-document updates rather than character operations: this is a plan
+ * being written during a call, where the agent drafts and people edit
+ * between turns, not a Google Doc with six simultaneous typists. `rev`
+ * orders edits so a straggling broadcast can't resurrect stale text.
+ */
+export const sharedDocSchema = z.object({
+  text: z.string(),
+  /** Increments on every accepted edit; the primary ordering. */
+  rev: z.number().int().min(0),
+  /** Who last wrote, so the panel can say "Scout is drafting". */
+  by: z.string(),
+  byName: z.string(),
+  at: z.number(),
+})
+export type SharedDoc = z.infer<typeof sharedDocSchema>
+
+export const emptySharedDoc: SharedDoc = {
+  text: "",
+  rev: 0,
+  by: "",
+  byName: "",
+  at: 0,
+}
+
+/**
+ * Picks the winner between what we hold and what just arrived.
+ *
+ * Every peer runs this on the same pair and must reach the same answer, or
+ * the room's copies diverge silently — which is why the tie-breaks go all
+ * the way down to comparing identities rather than stopping at "whatever
+ * arrived last". Two people editing the same instant means one of them
+ * loses their keystroke; that's the accepted cost of not shipping a CRDT.
+ */
+export function mergeSharedDoc(
+  current: SharedDoc,
+  incoming: SharedDoc,
+): SharedDoc {
+  if (incoming.rev !== current.rev) {
+    return incoming.rev > current.rev ? incoming : current
+  }
+  if (incoming.at !== current.at) {
+    return incoming.at > current.at ? incoming : current
+  }
+  // Same revision, same millisecond: fall back to a stable comparison so
+  // every participant converges on one text instead of on their own.
+  return incoming.by > current.by ? incoming : current
+}
 
 /**
  * Only one screen share owns the stage. Starting a share broadcasts a

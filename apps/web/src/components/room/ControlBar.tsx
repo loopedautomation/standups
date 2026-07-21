@@ -15,6 +15,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  FileText,
   Hand,
   Link as LinkIcon,
   LogOut,
@@ -322,6 +323,16 @@ export function ControlBar({
             aria-label="Chat"
           >
             <MessageSquare className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-bottom" data-tip="Doc">
+          <button
+            type="button"
+            className={`btn btn-circle ${openPanel === "doc" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => togglePanel("doc")}
+            aria-label="Doc"
+          >
+            <FileText className="size-5" />
           </button>
         </div>
         <div className="tooltip tooltip-bottom" data-tip="Settings">

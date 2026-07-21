@@ -29,9 +29,12 @@ import { LoopedTtyClient } from "./looped-tty.js"
 import { type Brain, LoopedWebhookClient } from "./looped-webhook.js"
 import {
   describeRoster,
+  fetchSharedDoc,
   fetchTranscript,
+  formatSharedDoc,
   formatTranscript,
   postDebugEvent,
+  saveSharedDoc,
   withMeetingContext,
 } from "./meeting-context.js"
 import { runRealtimeAgent } from "./realtime-agent.js"
@@ -189,13 +192,37 @@ export default defineAgent({
 
     const screen = new ScreenCapture(ctx.room)
 
+    /**
+     * Write the shared document and tell the room. Persisting alone isn't
+     * enough — anyone with the Doc panel open is watching the data channel,
+     * and would keep showing the old text until they reloaded.
+     */
+    const publishDoc = async (text: string): Promise<string> => {
+      const saved = await saveSharedDoc(
+        roomName,
+        text,
+        `agent-${entry.id}`,
+        entry.name,
+      )
+      if (!saved) return "The document couldn't be saved."
+      local
+        .publishData(new TextEncoder().encode(JSON.stringify(saved)), {
+          reliable: true,
+          topic: DataTopic.Doc,
+        })
+        .catch(() => undefined)
+      return "Saved. Everyone can see the updated document."
+    }
+
     // Meeting context: what was said before the agent joined (from the
     // control API's transcript store) plus who's in the room. Wrapping the
     // brain injects it into the first turn on every path — voice, chat
     // mention, or realtime ask_agent delegation.
     const priorTranscript = formatTranscript(await fetchTranscript(roomName))
+    const priorDoc = formatSharedDoc(await fetchSharedDoc(roomName))
     const meetingContext = [
       `Participants in the meeting when you joined: ${describeRoster(ctx.room)}.`,
+      priorDoc,
       priorTranscript
         ? `Transcript of the meeting before you joined:\n${priorTranscript}`
         : "",
@@ -272,6 +299,8 @@ export default defineAgent({
         // speaks, so barge-in has to be heard locally. Same prewarmed VAD the
         // pipeline path uses for turn detection.
         vad: ctx.proc.userData.vad as silero.VAD | undefined,
+        readDoc: async () => (await fetchSharedDoc(roomName)).text,
+        writeDoc: publishDoc,
         context: meetingContext,
       })
       return

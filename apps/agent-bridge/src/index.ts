@@ -1,6 +1,13 @@
 import { serve } from "@hono/node-server"
 import { AgentServer, initializeLogger, ServerOptions } from "@livekit/agents"
-import { AGENT_VOICES, type AgentVoice } from "@meet/shared"
+import {
+  AGENT_VOICES,
+  type AgentVoice,
+  emptySharedDoc,
+  mergeSharedDoc,
+  type SharedDoc,
+  sharedDocSchema,
+} from "@meet/shared"
 import { Hono } from "hono"
 import { AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk"
 import {
@@ -161,6 +168,44 @@ app.post("/internal/rooms/:room/transcript", async (c) => {
 app.get("/internal/rooms/:room/transcript", (c) => {
   const { room } = c.req.param()
   return c.json({ segments: transcripts.get(room)?.segments ?? [] })
+})
+
+// ---- shared doc store ------------------------------------------------------
+// The meeting's markdown document. Data messages only reach people already
+// in the room, so the document also lives here: a late joiner, a refresh, or
+// an agent that wants to read what was planned all fetch it from one place.
+// Memory only, like the transcript, and dropped on the same schedule.
+const MAX_DOC_BYTES = 256 * 1024
+const docs = new Map<string, { updatedAt: number; doc: SharedDoc }>()
+
+setInterval(
+  () => {
+    const cutoff = Date.now() - TRANSCRIPT_TTL_MS
+    for (const [room, entry] of docs) {
+      if (entry.updatedAt < cutoff) docs.delete(room)
+    }
+  },
+  60 * 60 * 1000,
+).unref()
+
+app.get("/rooms/:room/doc", (c) => {
+  const { room } = c.req.param()
+  return c.json({ doc: docs.get(room)?.doc ?? emptySharedDoc })
+})
+
+app.put("/rooms/:room/doc", async (c) => {
+  const { room } = c.req.param()
+  const parsed = sharedDocSchema.safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: "invalid doc" }, 400)
+  if (Buffer.byteLength(parsed.data.text) > MAX_DOC_BYTES) {
+    return c.json({ error: "document too large" }, 413)
+  }
+  // Merged, not overwritten: two clients can PUT concurrently, and the store
+  // has to land on the same winner every peer's local merge did.
+  const current = docs.get(room)?.doc ?? emptySharedDoc
+  const doc = mergeSharedDoc(current, parsed.data)
+  docs.set(room, { updatedAt: Date.now(), doc })
+  return c.json({ doc })
 })
 
 // ---- debug access ----------------------------------------------------------

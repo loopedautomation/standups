@@ -2,6 +2,7 @@ import { atom } from "nanostores"
 
 export type Panel =
   | "agents"
+  | "doc"
   | "transcript"
   | "chat"
   | "participants"

@@ -55,6 +55,11 @@ const instructions = (entry: AgentEntry, context?: string) =>
   "cancel_task if someone tells you to stop. Messages " +
   "prefixed [meeting chat] are the room's text chat: read them for context " +
   "and reply in chat (or aloud only if addressed there)." +
+  " The meeting has a shared markdown document everyone can see and edit. " +
+  "When someone asks you to write something up, capture a decision, or draft " +
+  "a plan, read it and write it back with your changes folded in — never " +
+  "just your own addition, or you'll delete their work. Say briefly what you " +
+  "changed rather than reading the document out loud." +
   " Your audio may be gated by the meeting's host: while it is, you are " +
   "only given the floor when someone addresses you by name or calls on you " +
   "after you raise your hand, and between turns you may be asked silently " +
@@ -83,10 +88,14 @@ export async function runRealtimeAgent(opts: {
    * control remains the only recourse.
    */
   vad?: VAD
+  /** Read/write the meeting's shared markdown document. */
+  readDoc?: () => Promise<string>
+  writeDoc?: (text: string) => Promise<string>
   /** Meeting context (roster, prior transcript) folded into instructions. */
   context?: string
 }): Promise<void> {
   const { ctx, entry, realtime, brain, state, callbacks, screen, vad } = opts
+  const { readDoc, writeDoc } = opts
   const local = ctx.room.localParticipant
   if (!local) throw new Error("no local participant")
   const apiKey = process.env.OPENAI_API_KEY
@@ -239,6 +248,8 @@ export async function runRealtimeAgent(opts: {
       return true
     },
     sendChat: callbacks.publishChat,
+    readDoc,
+    writeDoc,
     gate: {
       // Substring, not word-boundary: STT often renders the name with
       // possessives or punctuation attached ("Scout's", "scout?").

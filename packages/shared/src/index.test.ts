@@ -4,7 +4,11 @@ import {
   agentControlSchema,
   defaultRoomSettings,
   describeAgentControl,
+  emptySharedDoc,
+  mergeSharedDoc,
   parseRoomSettings,
+  type SharedDoc,
+  sharedDocSchema,
 } from "./index.js"
 
 describe("agentControlSchema", () => {
@@ -118,5 +122,79 @@ describe("parseRoomSettings", () => {
         JSON.stringify({ settings: { participantsCanControlAgents: "yes" } }),
       ),
     ).toEqual(defaultRoomSettings)
+  })
+})
+
+function doc(overrides: Partial<SharedDoc>): SharedDoc {
+  return { ...emptySharedDoc, by: "a", byName: "A", ...overrides }
+}
+
+describe("sharedDocSchema", () => {
+  it("accepts a document update", () => {
+    expect(
+      sharedDocSchema.parse({
+        text: "# Plan",
+        rev: 3,
+        by: "u1",
+        byName: "Amin",
+        at: 1000,
+      }).rev,
+    ).toBe(3)
+  })
+
+  it("rejects a negative or fractional revision", () => {
+    for (const rev of [-1, 1.5]) {
+      expect(sharedDocSchema.safeParse({ ...doc({}), rev }).success).toBe(false)
+    }
+  })
+})
+
+describe("mergeSharedDoc", () => {
+  it("takes the newer revision", () => {
+    const current = doc({ text: "old", rev: 1 })
+    const incoming = doc({ text: "new", rev: 2 })
+    expect(mergeSharedDoc(current, incoming).text).toBe("new")
+  })
+
+  it("ignores a stale broadcast that arrives late", () => {
+    // The case this exists for: a slow peer's older edit landing after a
+    // newer one would otherwise wipe out the newer text.
+    const current = doc({ text: "new", rev: 5 })
+    const incoming = doc({ text: "stale", rev: 4 })
+    expect(mergeSharedDoc(current, incoming).text).toBe("new")
+  })
+
+  it("breaks a revision tie on timestamp", () => {
+    const current = doc({ text: "first", rev: 2, at: 100 })
+    const incoming = doc({ text: "second", rev: 2, at: 200 })
+    expect(mergeSharedDoc(current, incoming).text).toBe("second")
+  })
+
+  it("breaks a full tie the same way on every peer", () => {
+    const mine = doc({ text: "mine", rev: 2, at: 100, by: "aaa" })
+    const theirs = doc({ text: "theirs", rev: 2, at: 100, by: "zzz" })
+    // Both sides must land on the same text, whichever way round they see
+    // the pair — otherwise the room silently diverges.
+    expect(mergeSharedDoc(mine, theirs).text).toBe("theirs")
+    expect(mergeSharedDoc(theirs, mine).text).toBe("theirs")
+  })
+
+  it("converges regardless of the order updates arrive in", () => {
+    const updates = [
+      doc({ text: "a", rev: 1, at: 10, by: "u1" }),
+      doc({ text: "b", rev: 2, at: 20, by: "u2" }),
+      doc({ text: "c", rev: 2, at: 20, by: "u3" }),
+      doc({ text: "d", rev: 3, at: 30, by: "u1" }),
+    ]
+    const fold = (order: SharedDoc[]) =>
+      order.reduce(mergeSharedDoc, emptySharedDoc).text
+    expect(fold(updates)).toBe("d")
+    expect(fold([...updates].reverse())).toBe("d")
+    expect(fold([updates[2], updates[0], updates[3], updates[1]])).toBe("d")
+  })
+
+  it("accepts the first real edit over an empty document", () => {
+    const incoming = doc({ text: "# Plan", rev: 1, at: 5 })
+    expect(mergeSharedDoc(emptySharedDoc, incoming).text).toBe("# Plan")
   })
 })

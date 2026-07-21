@@ -73,7 +73,7 @@ export function MeetingView({
   return (
     <div className="flex h-dvh flex-col bg-base-200">
       <RoomAudioRenderer />
-      <RoomDataListener />
+      <RoomDataListener slug={slug} />
       <ControlBar slug={slug} shareBase={shareBase} startedAt={startedAt} />
 
       {connectionState !== ConnectionState.Connected && (

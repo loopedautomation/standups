@@ -22,6 +22,7 @@ Self-hostable video meetings with first-class AI agent participants. Share a lin
 - **Tool activity feed** — watch the agent's tool calls stream in real time while it works.
 - **Barge-in & mute** — just start talking and the agent stops, the way it would for a person; tap to cut it off explicitly, or mute it and it knows, replying into the chat instead of speaking until unmuted.
 - **Screenshare vision** — share your screen and the agent sees it: every question it answers comes with a current frame of the share.
+- **Shared doc** — a markdown document the whole room edits together, and the agent writes into: talk through a plan and ask it to write the thing up. Survives refreshes and late joiners.
 - **Live transcript & chat** — built-in transcription panel (server-side, or in-browser via WASM) and chat with `@AgentName` mentions.
 - **Voices** — OpenAI or ElevenLabs TTS per agent; light/dark looped theming (DaisyUI — easy to whitelabel).
 

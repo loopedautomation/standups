@@ -1,5 +1,10 @@
 import type { Room } from "@livekit/rtc-node"
-import { parseParticipantMeta } from "@meet/shared"
+import {
+  emptySharedDoc,
+  parseParticipantMeta,
+  type SharedDoc,
+  sharedDocSchema,
+} from "@meet/shared"
 import type { Brain } from "./looped-webhook.js"
 
 // Meeting context shared with agent brains: who is in the room, and what has
@@ -50,6 +55,73 @@ export async function fetchTranscript(
   } catch {
     return []
   }
+}
+
+/** The room's shared markdown document. Empty on any failure. */
+export async function fetchSharedDoc(room: string): Promise<SharedDoc> {
+  try {
+    const res = await fetch(
+      `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/doc`,
+      {
+        headers: { authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}` },
+      },
+    )
+    if (!res.ok) return emptySharedDoc
+    const body = (await res.json()) as { doc?: unknown }
+    const parsed = sharedDocSchema.safeParse(body.doc)
+    return parsed.success ? parsed.data : emptySharedDoc
+  } catch {
+    return emptySharedDoc
+  }
+}
+
+/**
+ * Writes the shared document on the agent's behalf, at whatever revision the
+ * store is on right now — the agent thinks for seconds at a time, and the
+ * humans keep typing while it does, so the revision it started from is
+ * routinely stale by the time it finishes.
+ */
+export async function saveSharedDoc(
+  room: string,
+  text: string,
+  by: string,
+  byName: string,
+): Promise<SharedDoc | null> {
+  const current = await fetchSharedDoc(room)
+  const update: SharedDoc = {
+    text,
+    rev: current.rev + 1,
+    by,
+    byName,
+    at: Date.now(),
+  }
+  try {
+    const res = await fetch(
+      `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/doc`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}`,
+        },
+        body: JSON.stringify(update),
+      },
+    )
+    if (!res.ok) return null
+    return update
+  } catch {
+    return null
+  }
+}
+
+/** The shared document as brain-readable context, bounded like the transcript. */
+export function formatSharedDoc(doc: SharedDoc, maxChars = 6000): string {
+  if (!doc.text.trim()) return ""
+  const text =
+    doc.text.length > maxChars
+      ? `${doc.text.slice(0, maxChars)}\n…(truncated)`
+      : doc.text
+  return `The meeting's shared document, which everyone can see and edit:\n\n${text}`
 }
 
 /** Render a transcript as brain-readable context, bounded by character count. */
