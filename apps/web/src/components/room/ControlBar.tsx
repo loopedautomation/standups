@@ -33,8 +33,13 @@ import {
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { useBackgroundBlur } from "@/hooks/useBackgroundBlur"
+import {
+  supportsVoiceIsolation,
+  useVoiceIsolation,
+} from "@/hooks/useVoiceIsolation"
 import { $blur, setBlur } from "@/stores/blur"
 import { $openPanel, togglePanel } from "@/stores/panels"
+import { $voiceIsolation, setVoiceIsolation } from "@/stores/voiceIsolation"
 
 export function ControlBar({
   slug,
@@ -61,6 +66,9 @@ export function ControlBar({
 
   const blur = useStore($blur)
   useBackgroundBlur(blur)
+
+  const voiceIsolation = useStore($voiceIsolation)
+  useVoiceIsolation(voiceIsolation)
 
   const { handRaised, toggleHand } = useRaiseHand(localParticipant)
 
@@ -192,7 +200,21 @@ export function ControlBar({
               )}
             </button>
           </div>
-          <DeviceMenu kind="audioinput" persistKey="audioDeviceId" />
+          <DeviceMenu kind="audioinput" persistKey="audioDeviceId">
+            {supportsVoiceIsolation() && (
+              <li>
+                <button
+                  type="button"
+                  className="whitespace-nowrap"
+                  onClick={() => setVoiceIsolation(!voiceIsolation)}
+                >
+                  <Sparkles className="size-4" />
+                  Enhanced noise removal
+                  {voiceIsolation && <Check className="size-4 text-success" />}
+                </button>
+              </li>
+            )}
+          </DeviceMenu>
         </div>
         <div className="join">
           <div

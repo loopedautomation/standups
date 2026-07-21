@@ -7,6 +7,7 @@ import { Moon, Sun } from "lucide-react"
 import { useState } from "react"
 import { toast } from "react-toastify"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
+import { supportsVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { readHostKey } from "@/lib/hostKey"
 import { $blur, setBlur } from "@/stores/blur"
 import {
@@ -14,10 +15,12 @@ import {
   setPauseCameraOnBackground,
 } from "@/stores/camera"
 import { $theme, setTheme } from "@/stores/theme"
+import { $voiceIsolation, setVoiceIsolation } from "@/stores/voiceIsolation"
 
 export function SettingsPanel({ slug }: { slug: string }) {
   const theme = useStore($theme)
   const blur = useStore($blur)
+  const voiceIsolation = useStore($voiceIsolation)
   const pauseOnBackground = useStore($pauseCameraOnBackground)
 
   return (
@@ -68,6 +71,30 @@ export function SettingsPanel({ slug }: { slug: string }) {
           persistKey="audioOutputDeviceId"
         />
       </section>
+
+      {supportsVoiceIsolation() && (
+        <section className="flex flex-col gap-2">
+          <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
+            Audio
+          </h3>
+          <label className="flex cursor-pointer items-center justify-between gap-4">
+            <span className="flex flex-col">
+              <span className="text-sm">Enhanced noise removal</span>
+              <span className="text-base-content/60 text-xs">
+                Isolates your voice and strips out background noise (fans,
+                typing, chatter). On by default — turn it off if it clips your
+                audio.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className="toggle toggle-primary"
+              checked={voiceIsolation}
+              onChange={(e) => setVoiceIsolation(e.target.checked)}
+            />
+          </label>
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
