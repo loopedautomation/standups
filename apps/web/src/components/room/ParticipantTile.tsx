@@ -136,7 +136,14 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
       )}
 
       {handUp && (
-        <span className="badge badge-soft badge-warning badge-sm absolute top-2 left-2 z-10 gap-1">
+        <span
+          className="badge badge-sm absolute top-2 left-2 z-10 gap-1"
+          style={{
+            backgroundColor: "#ED9B00",
+            color: "#7C2D00",
+            borderColor: "transparent",
+          }}
+        >
           <Hand className="size-3" />
           Hand raised
         </span>
