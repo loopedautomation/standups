@@ -1,7 +1,7 @@
 "use client"
 
 import { type TrackReference, VideoTrack } from "@livekit/components-react"
-import { Minus, Plus, RotateCcw } from "lucide-react"
+import { Minus, Plus } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 const MIN_ZOOM = 1
@@ -14,6 +14,10 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
+  // True only while a step-zoom button's CSS transition is playing, so the
+  // continuous wheel/pinch path stays untransitioned and doesn't stutter.
+  const [animating, setAnimating] = useState(false)
+  const animateTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
   const dragOrigin = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
 
   // A new presenter (or the same one restarting) shouldn't inherit the
@@ -49,9 +53,11 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
     [clampPan],
   )
 
-  const resetZoom = () => {
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
+  const stepZoom = (delta: number) => {
+    clearTimeout(animateTimeout.current)
+    setAnimating(true)
+    applyZoom((z) => z + delta)
+    animateTimeout.current = setTimeout(() => setAnimating(false), 200)
   }
 
   const onWheel = (e: React.WheelEvent) => {
@@ -112,7 +118,10 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "center center",
-          transition: dragging ? "none" : "transform 0.1s ease-out",
+          transition:
+            !dragging && animating
+              ? "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+              : "none",
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -132,7 +141,7 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
         <button
           type="button"
           className="btn btn-circle btn-ghost btn-xs"
-          onClick={() => applyZoom((z) => z - ZOOM_STEP)}
+          onClick={() => stepZoom(-ZOOM_STEP)}
           disabled={zoom <= MIN_ZOOM}
           aria-label="Zoom out"
         >
@@ -144,22 +153,12 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
         <button
           type="button"
           className="btn btn-circle btn-ghost btn-xs"
-          onClick={() => applyZoom((z) => z + ZOOM_STEP)}
+          onClick={() => stepZoom(ZOOM_STEP)}
           disabled={zoom >= MAX_ZOOM}
           aria-label="Zoom in"
         >
           <Plus className="size-3.5" />
         </button>
-        {zoom > MIN_ZOOM && (
-          <button
-            type="button"
-            className="btn btn-circle btn-ghost btn-xs"
-            onClick={resetZoom}
-            aria-label="Reset zoom"
-          >
-            <RotateCcw className="size-3.5" />
-          </button>
-        )}
       </div>
     </div>
   )
