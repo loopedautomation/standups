@@ -4,6 +4,9 @@ import { useParticipants } from "@livekit/components-react"
 import {
   AGENT_VOICES,
   type AgentActivityEvent,
+  type AgentInfo,
+  GEMINI_VOICES,
+  OPENAI_TTS_VOICES,
   parseParticipantMeta,
 } from "@meet/shared"
 import { useStore } from "@nanostores/react"
@@ -21,6 +24,24 @@ import { useSendAgentControl } from "@/hooks/useSendAgentControl"
 import { readHostKey } from "@/lib/hostKey"
 import { $agentActivity, $agentStats } from "@/stores/roomData"
 
+/**
+ * The voices offerable for an invite: the namespace follows the effective
+ * mode's speaking provider. A realtime override on a pipeline-default agent
+ * runs on OpenAI realtime (the worker's conversion), hence AGENT_VOICES.
+ * Null means no picker: ElevenLabs voices are account-specific ids.
+ */
+function voiceOptions(
+  agent: AgentInfo,
+  mode: AgentMode | "",
+): readonly string[] | null {
+  if (mode === "gemini") return GEMINI_VOICES
+  if (mode === "realtime") return AGENT_VOICES
+  if (mode === "" && agent.realtimeProvider) {
+    return agent.realtimeProvider === "gemini" ? GEMINI_VOICES : AGENT_VOICES
+  }
+  return agent.ttsProvider === "elevenlabs" ? null : OPENAI_TTS_VOICES
+}
+
 export function AgentsPanel({ slug }: { slug: string }) {
   const { data: agents = [], isLoading } = useAgents()
   const participants = useParticipants()
@@ -33,6 +54,9 @@ export function AgentsPanel({ slug }: { slug: string }) {
   // Per-agent interaction-mode choice ("" = the agent's registry default).
   // Meeting-level, not agent-level: any brain can front realtime or pipeline.
   const [modes, setModes] = useState<Record<string, AgentMode | "">>({})
+  // Per-agent voice override ("" = the agent's default). The valid list
+  // depends on the effective mode and provider, so a mode change resets it.
+  const [voices, setVoices] = useState<Record<string, string>>({})
   // Accordion: one card open at a time; collapsed rows are just icon + name.
   const [expanded, setExpanded] = useState<string | null>(null)
   // Recently invited URL agents, remembered per browser. Lifted out of the
@@ -59,7 +83,7 @@ export function AgentsPanel({ slug }: { slug: string }) {
   const registryIds = new Set(agents.map((a) => a.id))
   const dynamicAgents = [...agentParticipants.entries()]
     .filter(([id]) => id && !registryIds.has(id))
-    .map(([id, p]) => ({
+    .map(([id, p]): AgentInfo => ({
       id: id as string,
       name: p.name || (id as string),
       // The agent's own description, from its hello frame; fall back for
@@ -174,20 +198,50 @@ export function AgentsPanel({ slug }: { slug: string }) {
                 ) : canInvite ? (
                   <div className="join w-full">
                     <select
-                      className="select select-sm join-item min-w-0 flex-1 border border-base-300 text-xs"
+                      className="select select-sm join-item min-w-0 flex-1 border border-base-300 text-[11px]"
                       value={modes[agent.id] ?? ""}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setModes((m) => ({
                           ...m,
                           [agent.id]: e.target.value as AgentMode | "",
                         }))
-                      }
+                        // The mode decides which provider speaks, and voice
+                        // names don't carry across providers — back to default.
+                        setVoices((v) => ({ ...v, [agent.id]: "" }))
+                      }}
                       aria-label="Interaction mode"
                     >
                       <option value="">Default</option>
-                      <option value="realtime">Realtime</option>
+                      <option value="realtime">Realtime mini</option>
+                      <option value="gemini">Gemini Live</option>
                       <option value="pipeline">STT + TTS</option>
                     </select>
+                    {(() => {
+                      const options = voiceOptions(agent, modes[agent.id] ?? "")
+                      // ElevenLabs voices are account-specific ids, not an
+                      // enumerable list — the registry's choice stands.
+                      if (!options) return null
+                      return (
+                        <select
+                          className="select select-sm join-item min-w-0 flex-1 border border-base-300 text-[11px]"
+                          value={voices[agent.id] ?? ""}
+                          onChange={(e) =>
+                            setVoices((v) => ({
+                              ...v,
+                              [agent.id]: e.target.value,
+                            }))
+                          }
+                          aria-label="Voice"
+                        >
+                          <option value="">Voice</option>
+                          {options.map((v) => (
+                            <option key={v} value={v}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    })()}
                     <button
                       type="button"
                       className="btn btn-primary btn-sm join-item"
@@ -197,6 +251,7 @@ export function AgentsPanel({ slug }: { slug: string }) {
                           agentId: agent.id,
                           action: "invite",
                           mode: modes[agent.id] || undefined,
+                          voice: voices[agent.id] || undefined,
                         })
                       }
                     >
@@ -515,22 +570,40 @@ function ActivityFeed({ activity }: { activity: AgentActivityEvent[] }) {
         // Newest at the top — the live call is what you came to watch.
         .reverse()
         .map((e) => (
-          <li
-            key={`${e.type}-${e.at}`}
-            className="rounded-field bg-base-200 p-2 font-mono text-xs"
-          >
-            <span className="flex items-center gap-1 text-primary">
-              <Wrench className="size-3" />
-              {e.type === "tool_call" ? `→ ${e.name}` : `← ${e.name}`}
-              {e.type === "tool_result" && (
-                <span className="text-base-content/50">{e.durationMs}ms</span>
-              )}
-            </span>
-            <span className="line-clamp-3 break-all text-base-content/70">
-              {e.type === "tool_call" ? e.arguments : e.content}
-            </span>
-          </li>
+          <ActivityItem key={`${e.type}-${e.at}`} event={e} />
         ))}
     </ul>
+  )
+}
+
+function ActivityItem({
+  event: e,
+}: {
+  event: Extract<AgentActivityEvent, { type: "tool_call" | "tool_result" }>
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <li className="rounded-field bg-base-200 font-mono text-xs">
+      <button
+        type="button"
+        className="w-full cursor-pointer p-2 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="flex items-center gap-1 text-primary">
+          <Wrench className="size-3" />
+          {e.type === "tool_call" ? `→ ${e.name}` : `← ${e.name}`}
+          {e.type === "tool_result" && (
+            <span className="text-base-content/50">{e.durationMs}ms</span>
+          )}
+        </span>
+        <span
+          className={`break-all text-base-content/70 ${
+            open ? "block whitespace-pre-wrap" : "line-clamp-3"
+          }`}
+        >
+          {e.type === "tool_call" ? e.arguments : e.content}
+        </span>
+      </button>
+    </li>
   )
 }

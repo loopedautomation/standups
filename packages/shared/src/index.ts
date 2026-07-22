@@ -92,7 +92,7 @@ export function parseParticipantMeta(
   }
 }
 
-/** Voices an agent may speak with (realtime model voices). */
+/** Voices an agent may speak with (OpenAI realtime model voices). */
 export const AGENT_VOICES = [
   "marin",
   "cedar",
@@ -103,6 +103,33 @@ export const AGENT_VOICES = [
   "verse",
 ] as const
 export type AgentVoice = (typeof AGENT_VOICES)[number]
+
+/** Prebuilt voices of Google's Gemini Live realtime models. */
+export const GEMINI_VOICES = [
+  "Puck",
+  "Charon",
+  "Kore",
+  "Fenrir",
+  "Aoede",
+  "Leda",
+  "Orus",
+  "Zephyr",
+] as const
+
+/** Voices of OpenAI's TTS models (the pipeline mode's speech output). */
+export const OPENAI_TTS_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "sage",
+  "shimmer",
+  "verse",
+] as const
 
 /**
  * How an agent decides when to speak.
@@ -394,5 +421,10 @@ export const agentInfoSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   avatar: z.string().optional(),
+  // Which voice namespace applies per interaction mode: realtime voices are
+  // the provider's, pipeline voices are the TTS provider's. Absent
+  // realtimeProvider means the agent defaults to pipeline mode.
+  realtimeProvider: z.enum(["openai", "gemini"]).optional(),
+  ttsProvider: z.enum(["openai", "elevenlabs"]).optional(),
 })
 export type AgentInfo = z.infer<typeof agentInfoSchema>

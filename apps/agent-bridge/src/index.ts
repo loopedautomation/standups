@@ -3,6 +3,8 @@ import { AgentServer, initializeLogger, ServerOptions } from "@livekit/agents"
 import {
   AGENT_VOICES,
   type AgentVoice,
+  GEMINI_VOICES,
+  OPENAI_TTS_VOICES,
   emptySharedDoc,
   mergeSharedDoc,
   type SharedDoc,
@@ -49,12 +51,18 @@ app.use("*", async (c, next) => {
 })
 
 app.get("/agents", (c) => {
-  const agents = loadRegistry().map(({ id, name, description, avatar }) => ({
-    id,
-    name,
-    description,
-    avatar,
-  }))
+  const agents = loadRegistry().map(
+    ({ id, name, description, avatar, realtime, tts }) => ({
+      id,
+      name,
+      description,
+      avatar,
+      // Enough config for the invite UI to offer the right voice list per
+      // interaction mode, without shipping the whole registry entry.
+      realtimeProvider: realtime?.provider,
+      ttsProvider: tts.provider,
+    }),
+  )
   return c.json({ agents })
 })
 
@@ -62,11 +70,39 @@ app.post("/rooms/:room/agents/:id", async (c) => {
   const { room, id } = c.req.param()
   const entry = loadRegistry().find((a) => a.id === id)
   if (!entry) return c.json({ error: "unknown agent" }, 404)
-  // Optional per-invite interaction-mode override (realtime <-> pipeline);
-  // the worker applies it when resolving the dispatch.
-  const body = (await c.req.json().catch(() => ({}))) as { mode?: string }
-  if (body.mode && body.mode !== "realtime" && body.mode !== "pipeline") {
+  // Optional per-invite overrides (interaction mode and voice); the worker
+  // applies them when resolving the dispatch.
+  const body = (await c.req.json().catch(() => ({}))) as {
+    mode?: string
+    voice?: string
+  }
+  if (
+    body.mode &&
+    body.mode !== "realtime" &&
+    body.mode !== "gemini" &&
+    body.mode !== "pipeline"
+  ) {
     return c.json({ error: "unknown mode" }, 400)
+  }
+  // Gemini Live cannot be gated; refused here so the invite fails visibly
+  // instead of the dispatched job dying where no one sees it.
+  if (body.mode === "gemini" && entry.turn_policy !== "open") {
+    return c.json(
+      { error: "this agent's turn policy needs the openai realtime provider" },
+      400,
+    )
+  }
+  // Which list applies depends on the resolved mode and provider, so the
+  // check here is membership in any namespace — the UI offers the right one.
+  if (
+    body.voice &&
+    !(
+      (AGENT_VOICES as readonly string[]).includes(body.voice) ||
+      (GEMINI_VOICES as readonly string[]).includes(body.voice) ||
+      (OPENAI_TTS_VOICES as readonly string[]).includes(body.voice)
+    )
+  ) {
+    return c.json({ error: "unknown voice" }, 400)
   }
 
   const participants = await rooms.listParticipants(room).catch(() => [])
@@ -75,7 +111,11 @@ app.post("/rooms/:room/agents/:id", async (c) => {
   }
 
   await dispatch.createDispatch(room, "looped-bridge", {
-    metadata: JSON.stringify({ agentId: id, mode: body.mode }),
+    metadata: JSON.stringify({
+      agentId: id,
+      mode: body.mode,
+      voice: body.voice,
+    }),
   })
   return c.json({ ok: true })
 })
