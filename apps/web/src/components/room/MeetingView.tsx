@@ -94,7 +94,10 @@ export function MeetingView({
       >
         {focused ? (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-            {/* Participants sit in a horizontal strip above the share,
+            <div className="min-h-0 min-w-0 flex-1">
+              <ScreenShareTile trackRef={focused} />
+            </div>
+            {/* Participants sit in a horizontal strip below the share,
                 centered and sized to match the draggable self-view. */}
             <div className="flex shrink-0 flex-row flex-wrap justify-center gap-3 overflow-x-auto">
               {remoteTracks.map((trackRef) => (
@@ -105,9 +108,6 @@ export function MeetingView({
                   <ParticipantTile trackRef={trackRef} compact />
                 </div>
               ))}
-            </div>
-            <div className="min-h-0 min-w-0 flex-1">
-              <ScreenShareTile trackRef={focused} />
             </div>
           </div>
         ) : alone ? (
@@ -139,7 +139,9 @@ export function MeetingView({
         )}
 
         {/* Your own video floats bottom-right once others are in the call; drag it
-            anywhere. When a side panel is open it sits to the panel's left. */}
+            anywhere. When a side panel is open it sits to the panel's left.
+            While a screen share is focused, the bottom edge is taken by the
+            participant strip, so it floats top-right instead. */}
         {!alone && localTrack && (
           <motion.div
             drag
@@ -152,9 +154,9 @@ export function MeetingView({
             // touch-none stops mobile browsers treating the drag as a page
             // scroll/pan, which was fighting the gesture. Rounding + shadow
             // live together here so the shadow follows the rounded corners.
-            className={`absolute bottom-6 z-10 w-32 cursor-grab touch-none rounded-box shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
-              openPanel ? "right-[22.25rem]" : "right-6"
-            }`}
+            className={`absolute z-10 w-32 cursor-grab touch-none rounded-box shadow-lg transition-[right] duration-200 active:cursor-grabbing sm:w-56 ${
+              focused ? "top-6" : "bottom-6"
+            } ${openPanel ? "right-[22.25rem]" : "right-6"}`}
           >
             <ParticipantTile trackRef={localTrack} compact />
           </motion.div>
