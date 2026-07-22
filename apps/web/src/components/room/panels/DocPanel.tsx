@@ -62,7 +62,7 @@ function remapOffset(oldText: string, newText: string, offset: number): number {
   return Math.min(newText.length - suffix, newText.length)
 }
 
-/** The caret bar plus the floating name pill to its left. */
+/** The caret bar plus the floating name pill to its right. */
 function CursorCaret({ presence }: { presence: SeenDocPresence }) {
   return (
     <span className="relative inline-block h-[1.1em] w-0 align-baseline">
@@ -71,7 +71,7 @@ function CursorCaret({ presence }: { presence: SeenDocPresence }) {
         style={{ backgroundColor: presence.color }}
       />
       <span
-        className="absolute right-[4px] top-[-2px] max-w-40 truncate whitespace-nowrap rounded px-1 py-px font-sans text-[10px] text-white leading-tight"
+        className="absolute top-[-2px] left-[4px] max-w-40 truncate whitespace-nowrap rounded px-1 py-px font-sans text-[10px] text-white leading-tight"
         style={{ backgroundColor: presence.color }}
       >
         {presence.byName || presence.by}
