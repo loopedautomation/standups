@@ -37,7 +37,7 @@ const agentEntrySchema = z.object({
   // pipeline. stt/tts below are ignored for realtime agents.
   realtime: z
     .object({
-      model: z.string().default("gpt-realtime"),
+      model: z.string().default("gpt-realtime-mini"),
       voice: z.string().default("marin"),
     })
     .optional(),

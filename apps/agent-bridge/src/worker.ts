@@ -72,7 +72,7 @@ function applyMode(
     return {
       ...entry,
       realtime: {
-        model: process.env.REALTIME_MODEL ?? "gpt-realtime-2.1",
+        model: process.env.REALTIME_MODEL ?? "gpt-realtime-2.1-mini",
         voice,
       },
     }
@@ -94,7 +94,7 @@ function entryFromMetadata(metadata: string): ResolvedEntry {
         turn_policy: "open",
         brain: { kind: "tty", url: spec.url, token_env: "" },
         realtime: {
-          model: process.env.REALTIME_MODEL ?? "gpt-realtime-2.1",
+          model: process.env.REALTIME_MODEL ?? "gpt-realtime-2.1-mini",
           voice: spec.voice ?? "marin",
         },
         stt: { provider: "openai", model: "gpt-4o-mini-transcribe" },
