@@ -35,11 +35,26 @@ const agentEntrySchema = z.object({
   // When present, the agent runs on a realtime speech-to-speech model (the
   // interaction layer) that delegates tool work to the brain — no STT/TTS
   // pipeline. stt/tts below are ignored for realtime agents.
+  // provider "gemini" runs on Google's Live API (needs GEMINI_API_KEY or
+  // GOOGLE_API_KEY, and a Gemini voice name like Puck or Kore). Gemini has
+  // no deterministic turn gate, so it only supports turn_policy "open".
   realtime: z
     .object({
-      model: z.string().default("gpt-realtime"),
-      voice: z.string().default("marin"),
+      provider: z.enum(["openai", "gemini"]).default("openai"),
+      model: z.string().optional(),
+      voice: z.string().optional(),
     })
+    .transform((rt) => ({
+      provider: rt.provider,
+      // Model and voice namespaces differ per provider, so their defaults
+      // have to resolve after the provider is known.
+      model:
+        rt.model ??
+        (rt.provider === "gemini"
+          ? "gemini-2.5-flash-native-audio-preview-12-2025"
+          : "gpt-realtime-mini"),
+      voice: rt.voice ?? (rt.provider === "gemini" ? "Puck" : "marin"),
+    }))
     .optional(),
   stt: z
     .object({

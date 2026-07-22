@@ -24,7 +24,15 @@ import {
 import type { TtyServerFrame } from "./looped-tty.js"
 import type { Brain } from "./looped-webhook.js"
 import { postDebugEvent } from "./meeting-context.js"
-import { REALTIME_SAMPLE_RATE, RealtimeSession } from "./realtime-session.js"
+import {
+  GEMINI_INPUT_SAMPLE_RATE,
+  GeminiLiveSession,
+} from "./gemini-live-session.js"
+import {
+  REALTIME_SAMPLE_RATE,
+  type RealtimeSessionOptions,
+  RealtimeSession,
+} from "./realtime-session.js"
 import type { AgentEntry } from "./registry.js"
 import { attachScreenFrame, type ScreenCapture } from "./screen-capture.js"
 
@@ -33,7 +41,6 @@ const ZAP_WINDOW_MS = 30_000
 
 /** How much mixed room audio each push into the session carries. */
 const MIX_INTERVAL_MS = 50
-const SAMPLES_PER_MIX = (REALTIME_SAMPLE_RATE / 1000) * MIX_INTERVAL_MS
 
 const instructions = (
   entry: AgentEntry,
@@ -112,8 +119,32 @@ export async function runRealtimeAgent(opts: {
   const { readDoc, writeDoc } = opts
   const local = ctx.room.localParticipant
   if (!local) throw new Error("no local participant")
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error("OPENAI_API_KEY is required for realtime agents")
+  const provider = realtime.provider
+  const apiKey =
+    provider === "gemini"
+      ? (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY)
+      : process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error(
+      provider === "gemini"
+        ? "GEMINI_API_KEY (or GOOGLE_API_KEY) is required for Gemini realtime agents"
+        : "OPENAI_API_KEY is required for realtime agents",
+    )
+  }
+  // Gemini Live always auto-responds to a completed turn — there is no
+  // create_response switch — so the deterministic gate behind on-mention and
+  // raise-hand cannot exist. Failing loudly beats an agent that talks when
+  // it was configured not to.
+  if (provider === "gemini" && entry.turn_policy !== "open") {
+    throw new Error(
+      `agent "${entry.id}": turn_policy "${entry.turn_policy}" requires the ` +
+        "openai realtime provider; Gemini Live cannot be gated",
+    )
+  }
+  // Room audio in at the provider's rate; both providers speak 24 kHz out.
+  const inputRate =
+    provider === "gemini" ? GEMINI_INPUT_SAMPLE_RATE : REALTIME_SAMPLE_RATE
+  const samplesPerMix = (inputRate / 1000) * MIX_INTERVAL_MS
 
   // Barge-in: the room mix keeps feeding a local VAD while the agent talks,
   // so a human speaking over it can cut it off. The model can't do this for
@@ -140,7 +171,7 @@ export async function runRealtimeAgent(opts: {
   const stats = {
     config: {
       mode: "realtime",
-      "speech-to-speech": `openai/${realtime.model}`,
+      "speech-to-speech": `${provider}/${realtime.model}`,
       voice: realtime.voice,
       brain: "looped-af (tty, via do_task)",
       "turn detection":
@@ -276,7 +307,7 @@ export async function runRealtimeAgent(opts: {
   const idleState = () =>
     state.muted ? "muted" : Date.now() < zappedUntil ? "zapped" : "listening"
 
-  const session = new RealtimeSession({
+  const sessionOpts: RealtimeSessionOptions = {
     model: realtime.model,
     voice: realtime.voice,
     apiKey,
@@ -367,7 +398,13 @@ export async function runRealtimeAgent(opts: {
         postDebugEvent(ctx.room.name, `agent:${entry.id}`, "error", msg)
       }
     },
-  })
+  }
+  const session =
+    provider === "gemini"
+      ? // Gemini can't honor the gate (see the policy check above), and its
+        // constructor rejects one on principle — hand it gate-free options.
+        new GeminiLiveSession({ ...sessionOpts, gate: undefined })
+      : new RealtimeSession(sessionOpts)
   await session.open()
   if (!session.live) throw new Error("realtime session failed to open")
   // The gate is always installed; an "open" policy simply leaves it lifted,
@@ -385,7 +422,7 @@ export async function runRealtimeAgent(opts: {
     const fifo: number[] = []
     fifos.set(track.sid ?? identity, fifo)
     const stream = new AudioStream(track, {
-      sampleRate: REALTIME_SAMPLE_RATE,
+      sampleRate: inputRate,
       numChannels: 1,
     })
     void (async () => {
@@ -419,7 +456,7 @@ export async function runRealtimeAgent(opts: {
   const bargeInPolicy = new BargeInPolicy(bargeIn)
   const bargeInStream = bargeIn.enabled && vad ? vad.stream() : null
   const prefix = new PcmRingBuffer(
-    bargeInStream ? (REALTIME_SAMPLE_RATE * bargeIn.prefixMs) / 1000 : 0,
+    bargeInStream ? (inputRate * bargeIn.prefixMs) / 1000 : 0,
   )
   let wasAudible = false
 
@@ -427,10 +464,10 @@ export async function runRealtimeAgent(opts: {
     if (!session.live || fifos.size === 0) return
     // Mix first, unconditionally: even in the half-duplex window below, this
     // audio still has a job to do — it's what the barge-in VAD listens to.
-    const mixed = new Int16Array(SAMPLES_PER_MIX)
+    const mixed = new Int16Array(samplesPerMix)
     let any = false
     for (const fifo of fifos.values()) {
-      const n = Math.min(fifo.length, SAMPLES_PER_MIX)
+      const n = Math.min(fifo.length, samplesPerMix)
       if (n === 0) continue
       any = true
       for (let i = 0; i < n; i++) {
@@ -454,7 +491,7 @@ export async function runRealtimeAgent(opts: {
         // and kept briefly, so a cut can replay what triggered it.
         prefix.push(mixed)
         bargeInStream.pushFrame(
-          new AudioFrame(mixed, REALTIME_SAMPLE_RATE, 1, SAMPLES_PER_MIX),
+          new AudioFrame(mixed, inputRate, 1, samplesPerMix),
         )
       }
       return
@@ -470,7 +507,7 @@ export async function runRealtimeAgent(opts: {
       prefix.clear()
     }
     if (!any) return
-    session.appendAudio(new Uint8Array(mixed.buffer, 0, SAMPLES_PER_MIX * 2))
+    session.appendAudio(new Uint8Array(mixed.buffer, 0, samplesPerMix * 2))
   }, MIX_INTERVAL_MS)
 
   // Hard-stop whatever is playing: cancel the model's response, drop frames

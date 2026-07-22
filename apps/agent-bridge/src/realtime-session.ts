@@ -30,6 +30,28 @@ export const LOOK_TOOL = "look_at_screen"
 
 const DEFAULT_HOST = "wss://api.openai.com/v1/realtime"
 
+/**
+ * The provider-independent surface a realtime speech-to-speech session
+ * exposes to the agent runner. RealtimeSession (OpenAI) and
+ * GeminiLiveSession both implement it; realtime-agent.ts only sees this.
+ */
+export interface VoiceSession {
+  /** Sample rate of audio pushed in via appendAudio (Hz, mono PCM16). */
+  readonly inputSampleRate: number
+  /** Sample rate of audio delivered via onAudio (Hz, mono PCM16). */
+  readonly outputSampleRate: number
+  readonly live: boolean
+  readonly responding: boolean
+  open(): Promise<void>
+  appendAudio(pcm: Uint8Array): void
+  say(text: string): void
+  notifyChat(line: string): void
+  setGateOpen(open: boolean): void
+  callOn(): void
+  cancelResponse(): void
+  close(): void
+}
+
 export type RealtimeSessionOptions = {
   model: string
   voice: string
@@ -102,6 +124,121 @@ const DELIBERATE_INSTRUCTIONS =
   "exactly PASS if not (this is almost always the answer), or RAISE_HAND " +
   "if yes. If you have a useful aside, you may also use send_chat_message."
 
+/** A provider-neutral function tool; each session maps it to its wire shape. */
+export type ToolDeclaration = {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/**
+ * The shared tool surface of a realtime agent. Both providers offer the same
+ * tools with the same wording, so agent behavior doesn't depend on which
+ * speech-to-speech model fronts the brain.
+ */
+export function toolDeclarations(
+  opts: Pick<RealtimeSessionOptions, "readDoc" | "writeDoc" | "lookAtScreen">,
+): ToolDeclaration[] {
+  return [
+    {
+      name: DELEGATE_TOOL,
+      description:
+        "Go do focused work yourself: this runs your own tools, memory and " +
+        "permissions — it is you working, not another agent, so never describe it " +
+        "as asking or waiting on someone else. It takes seconds to minutes, so use " +
+        "it only when you actually need it: taking an action, looking something up, " +
+        "or answering about systems, data or private state. Answer general " +
+        "questions and conversation directly. When you start a task, say a few " +
+        "words first so the person knows you're on it. If it takes long, it " +
+        "continues in the background and you'll receive a [task finished] note — " +
+        "until then, keep conversing normally and never invent a result.",
+      parameters: {
+        type: "object",
+        properties: {
+          request: {
+            type: "string",
+            description: "What to work on, in full sentences and self-contained.",
+          },
+        },
+        required: ["request"],
+      },
+    },
+    {
+      name: CANCEL_TOOL,
+      description:
+        "Stop the background task you are currently working on, e.g. when " +
+        "someone tells you to stop, never mind, or changes their request.",
+      parameters: { type: "object", properties: {} },
+    },
+    {
+      name: CHAT_TOOL,
+      description:
+        "Post a message into the meeting's text chat. Use it for links, " +
+        "asides, or anything useful that doesn't warrant speaking out " +
+        "loud and interrupting the conversation.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "The chat message to post." },
+        },
+        required: ["text"],
+      },
+    },
+    ...(opts.readDoc && opts.writeDoc
+      ? [
+          {
+            name: READ_DOC_TOOL,
+            description:
+              "Read the meeting's shared markdown document — the notes and " +
+              "plan everyone in the room can see. Read it before writing, " +
+              "and whenever someone refers to 'the doc', 'the notes' or " +
+              "'the plan'.",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            name: WRITE_DOC_TOOL,
+            description:
+              "Replace the meeting's shared markdown document. This " +
+              "overwrites it entirely, so read it first and send back the " +
+              "full document with your changes folded in — never just the " +
+              "part you added, or you will delete everyone else's work. " +
+              "Use it when asked to write up, capture, or restructure what " +
+              "was discussed. Say what you changed in a few words out loud; " +
+              "don't read the document back.",
+            parameters: {
+              type: "object",
+              properties: {
+                text: {
+                  type: "string",
+                  description: "The complete new document, in markdown.",
+                },
+              },
+              required: ["text"],
+            },
+          },
+        ]
+      : []),
+    ...(opts.lookAtScreen
+      ? [
+          {
+            name: LOOK_TOOL,
+            description:
+              "Look at the screen someone is sharing right now and get a " +
+              "description of what's on it. You cannot see the share any " +
+              "other way, so use this for ANY question about what is on " +
+              "screen, what someone is pointing at, an error they're " +
+              "showing you, or what to do next in what they're doing — and " +
+              "never guess at screen contents without calling it. It takes " +
+              "a moment, so say something short first ('let me look'). " +
+              "Each call sees the screen as it is at that moment: call it " +
+              "again rather than relying on what you saw earlier.",
+            parameters: { type: "object", properties: {} },
+          },
+        ]
+      : []),
+  ]
+}
+
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64")
 }
@@ -121,7 +258,9 @@ function fromBase64(base64: string): Uint8Array {
  * spoken audio back out through `onAudio` — turn-taking, barge-in and
  * backchannels are the model's business, not ours.
  */
-export class RealtimeSession {
+export class RealtimeSession implements VoiceSession {
+  readonly inputSampleRate = REALTIME_SAMPLE_RATE
+  readonly outputSampleRate = REALTIME_SAMPLE_RATE
   #opts: RealtimeSessionOptions
   #ws?: WebSocket
   #closed = false
@@ -189,115 +328,10 @@ export class RealtimeSession {
               voice: this.#opts.voice,
             },
           },
-          tools: [
-            {
-              type: "function",
-              name: DELEGATE_TOOL,
-              description:
-                "Go do focused work yourself: this runs your own tools, memory and " +
-                "permissions — it is you working, not another agent, so never describe it " +
-                "as asking or waiting on someone else. It takes seconds to minutes, so use " +
-                "it only when you actually need it: taking an action, looking something up, " +
-                "or answering about systems, data or private state. Answer general " +
-                "questions and conversation directly. When you start a task, say a few " +
-                "words first so the person knows you're on it. If it takes long, it " +
-                "continues in the background and you'll receive a [task finished] note — " +
-                "until then, keep conversing normally and never invent a result.",
-              parameters: {
-                type: "object",
-                properties: {
-                  request: {
-                    type: "string",
-                    description:
-                      "What to work on, in full sentences and self-contained.",
-                  },
-                },
-                required: ["request"],
-              },
-            },
-            {
-              type: "function",
-              name: CANCEL_TOOL,
-              description:
-                "Stop the background task you are currently working on, e.g. when " +
-                "someone tells you to stop, never mind, or changes their request.",
-              parameters: { type: "object", properties: {} },
-            },
-            {
-              type: "function",
-              name: CHAT_TOOL,
-              description:
-                "Post a message into the meeting's text chat. Use it for links, " +
-                "asides, or anything useful that doesn't warrant speaking out " +
-                "loud and interrupting the conversation.",
-              parameters: {
-                type: "object",
-                properties: {
-                  text: {
-                    type: "string",
-                    description: "The chat message to post.",
-                  },
-                },
-                required: ["text"],
-              },
-            },
-            ...(this.#opts.readDoc && this.#opts.writeDoc
-              ? [
-                  {
-                    type: "function",
-                    name: READ_DOC_TOOL,
-                    description:
-                      "Read the meeting's shared markdown document — the notes and " +
-                      "plan everyone in the room can see. Read it before writing, " +
-                      "and whenever someone refers to 'the doc', 'the notes' or " +
-                      "'the plan'.",
-                    parameters: { type: "object", properties: {} },
-                  },
-                  {
-                    type: "function",
-                    name: WRITE_DOC_TOOL,
-                    description:
-                      "Replace the meeting's shared markdown document. This " +
-                      "overwrites it entirely, so read it first and send back the " +
-                      "full document with your changes folded in — never just the " +
-                      "part you added, or you will delete everyone else's work. " +
-                      "Use it when asked to write up, capture, or restructure what " +
-                      "was discussed. Say what you changed in a few words out loud; " +
-                      "don't read the document back.",
-                    parameters: {
-                      type: "object",
-                      properties: {
-                        text: {
-                          type: "string",
-                          description:
-                            "The complete new document, in markdown.",
-                        },
-                      },
-                      required: ["text"],
-                    },
-                  },
-                ]
-              : []),
-            ...(this.#opts.lookAtScreen
-              ? [
-                  {
-                    type: "function",
-                    name: LOOK_TOOL,
-                    description:
-                      "Look at the screen someone is sharing right now and get a " +
-                      "description of what's on it. You cannot see the share any " +
-                      "other way, so use this for ANY question about what is on " +
-                      "screen, what someone is pointing at, an error they're " +
-                      "showing you, or what to do next in what they're doing — and " +
-                      "never guess at screen contents without calling it. It takes " +
-                      "a moment, so say something short first ('let me look'). " +
-                      "Each call sees the screen as it is at that moment: call it " +
-                      "again rather than relying on what you saw earlier.",
-                    parameters: { type: "object", properties: {} },
-                  },
-                ]
-              : []),
-          ],
+          tools: toolDeclarations(this.#opts).map((t) => ({
+            type: "function",
+            ...t,
+          })),
         },
       })
       this.#resolveReady()
