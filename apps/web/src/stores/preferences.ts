@@ -67,6 +67,12 @@ export const [$sendQuality, setSendQuality] = persistedString<SendQuality>(
   "auto",
 )
 
+/**
+ * "auto" asks for the camera's maximum (up to 4K) — the constraints are
+ * ideal, not exact, so a lesser camera simply delivers its best.
+ */
+export const AUTO_MAX_RESOLUTION = { width: 3840, height: 2160 }
+
 export const SEND_QUALITY_RESOLUTION: Record<
   Exclude<SendQuality, "auto">,
   { width: number; height: number }

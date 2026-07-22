@@ -1,6 +1,7 @@
 import type { LocalAudioTrack, LocalVideoTrack, Room } from "livekit-client"
 import { Track } from "livekit-client"
 import {
+  AUTO_MAX_RESOLUTION,
   SEND_QUALITY_RESOLUTION,
   type SendQuality,
 } from "@/stores/preferences"
@@ -29,9 +30,10 @@ export async function applySendQuality(
   const track = room.localParticipant.getTrackPublication(Track.Source.Camera)
     ?.track as LocalVideoTrack | undefined
   if (!track) return
-  await track.restartTrack(
-    quality === "auto"
-      ? undefined
-      : { resolution: SEND_QUALITY_RESOLUTION[quality] },
-  )
+  await track.restartTrack({
+    resolution:
+      quality === "auto"
+        ? AUTO_MAX_RESOLUTION
+        : SEND_QUALITY_RESOLUTION[quality],
+  })
 }

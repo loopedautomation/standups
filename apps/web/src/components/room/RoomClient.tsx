@@ -14,6 +14,7 @@ import { readDevicePref } from "@/stores/devicePrefs"
 import {
   $autoGain,
   $sendQuality,
+  AUTO_MAX_RESOLUTION,
   SEND_QUALITY_RESOLUTION,
   type SendQuality,
 } from "@/stores/preferences"
@@ -259,7 +260,9 @@ export function RoomClient({
         videoCaptureDefaults: {
           deviceId: videoDeviceId,
           // Send-quality cap wins over the portrait default: it exists for
-          // uplink-poor connections, which phones often are.
+          // uplink-poor connections, which phones often are. "auto" asks for
+          // the camera's maximum — ideal constraints, so a modest camera
+          // just delivers its best.
           ...($sendQuality.get() !== "auto"
             ? {
                 resolution:
@@ -269,7 +272,7 @@ export function RoomClient({
               }
             : portraitCapture
               ? { resolution: { width: 720, height: 1280 } }
-              : {}),
+              : { resolution: AUTO_MAX_RESOLUTION }),
         },
       }}
       // Waiting participants join without media; on admission WaitingRoom

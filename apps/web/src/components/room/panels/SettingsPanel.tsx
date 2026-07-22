@@ -304,8 +304,8 @@ export function SettingsPanel({ slug }: { slug: string }) {
               void applySendQuality(room, q).catch(() => undefined)
             }}
             options={[
-              { value: "auto", label: "Auto (default, up to 720p)" },
-              { value: "1080p", label: "1080p — sharpest, most data" },
+              { value: "auto", label: "Auto — your camera's maximum" },
+              { value: "1080p", label: "1080p" },
               { value: "720p", label: "720p" },
               { value: "360p", label: "360p — data saver" },
               { value: "180p", label: "180p — minimum" },
