@@ -36,11 +36,22 @@ type Props = Omit<
   color?: keyof typeof COLORS
 }
 
+/** Hard cap on label length — the CSS ellipsis backstop, not a replacement. */
+const MAX_LABEL_CHARS = 20
+
+function clampLabel(label: string): string {
+  return label.length > MAX_LABEL_CHARS
+    ? `${label.slice(0, MAX_LABEL_CHARS - 1).trimEnd()}…`
+    : label
+}
+
 /**
  * The app's one select. Width is the parent's business (it stretches, and
  * min-w-0 lets flex rows shrink it); overflowing labels truncate with an
  * ellipsis instead of clipping mid-character, with padding clearing the
- * chevron.
+ * chevron. Labels are additionally hard-capped: the trigger and the native
+ * option list share their text, so a runaway label is cut at the data level
+ * too.
  */
 export function Select({
   options,
@@ -58,7 +69,7 @@ export function Select({
       {placeholder !== undefined && <option value="">{placeholder}</option>}
       {options.map((o) => (
         <option key={o.value} value={o.value} disabled={o.disabled}>
-          {o.label}
+          {clampLabel(o.label)}
         </option>
       ))}
     </select>
