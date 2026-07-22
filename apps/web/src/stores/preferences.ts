@@ -59,7 +59,7 @@ export const [$pushToTalk, setPushToTalk] = persistedBool("pushToTalk", false)
 
 // ---- video -----------------------------------------------------------------
 
-export type SendQuality = "auto" | "720p" | "360p" | "180p"
+export type SendQuality = "auto" | "1080p" | "720p" | "360p" | "180p"
 
 /** Cap on the outgoing camera resolution — the data-saver for uplink. */
 export const [$sendQuality, setSendQuality] = persistedString<SendQuality>(
@@ -71,6 +71,7 @@ export const SEND_QUALITY_RESOLUTION: Record<
   Exclude<SendQuality, "auto">,
   { width: number; height: number }
 > = {
+  "1080p": { width: 1920, height: 1080 },
   "720p": { width: 1280, height: 720 },
   "360p": { width: 640, height: 360 },
   "180p": { width: 320, height: 180 },
