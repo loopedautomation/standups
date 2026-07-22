@@ -75,12 +75,12 @@ export function SettingsPanel({ slug }: { slug: string }) {
         <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
           Devices
         </h3>
-        <MicLevel />
         <DeviceSelect
           kind="audioinput"
           label="Select microphone"
           persistKey="audioDeviceId"
         />
+        <MicLevel />
         <CameraSetting />
         <DeviceSelect
           kind="audiooutput"
@@ -254,6 +254,17 @@ function CameraSetting() {
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      <label className="flex min-w-0 flex-col gap-1">
+        <span className="text-base-content/70 text-sm">Select camera</span>
+        <Select
+          value={shown}
+          onChange={(e) => setPending(e.target.value)}
+          options={devices.map((d) => ({
+            value: d.deviceId,
+            label: d.label || "Camera",
+          }))}
+        />
+      </label>
       <CameraSettingsPreview deviceId={shown} transform={shownT} />
       {/* Orientation stages like the device does: preview-only until Save. */}
       <div className="flex gap-1">
@@ -282,17 +293,6 @@ function CameraSetting() {
           <FlipVertical2 className="size-4" />
         </button>
       </div>
-      <label className="flex min-w-0 flex-col gap-1">
-        <span className="text-base-content/70 text-sm">Select camera</span>
-        <Select
-          value={shown}
-          onChange={(e) => setPending(e.target.value)}
-          options={devices.map((d) => ({
-            value: d.deviceId,
-            label: d.label || "Camera",
-          }))}
-        />
-      </label>
       {dirty && (
         <button
           type="button"
