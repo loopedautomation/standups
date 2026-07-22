@@ -483,7 +483,9 @@ function DeviceMenu({
       >
         <ChevronDown className="size-3" />
       </button>
-      <ul className="menu dropdown-content z-30 mt-1 w-64 rounded-box bg-base-100 p-2 shadow-lg ring-1 ring-base-300">
+      {/* Wide enough that device names read in full — the trigger button can
+          truncate, the options themselves shouldn't. Long outliers wrap. */}
+      <ul className="menu dropdown-content z-30 mt-1 w-80 max-w-[90vw] rounded-box bg-base-100 p-2 shadow-lg ring-1 ring-base-300">
         {devices.map((d) => (
           <li key={d.deviceId}>
             <button
@@ -498,7 +500,7 @@ function DeviceMenu({
                 } catch {}
               }}
             >
-              <span className="truncate">
+              <span className="min-w-0 break-words">
                 {d.label || (kind === "audioinput" ? "Microphone" : "Camera")}
               </span>
               {d.deviceId === activeDeviceId && (
