@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
+import { NetworkSection } from "@/components/room/CallHealth"
 import { Select } from "@/components/ui/Select"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { supportsVoiceIsolation } from "@/hooks/useVoiceIsolation"
@@ -121,6 +122,8 @@ export function SettingsPanel({ slug }: { slug: string }) {
           persistKey="audioOutputDeviceId"
         />
       </section>
+
+      <NetworkSection />
 
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
