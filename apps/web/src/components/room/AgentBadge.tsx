@@ -35,10 +35,23 @@ export function AgentBadge({ participant }: { participant: Participant }) {
         // is actively engaged, primary for its ordinary working states.
         state === "muted" || state === "deafened"
           ? "badge-error"
-          : state === "zapped" || state === "hand-raised"
+          : state === "zapped"
             ? "badge-success"
-            : "badge-primary"
+            : state === "hand-raised"
+              ? ""
+              : "badge-primary"
       }`}
+      // A raised agent hand is the same gesture as a raised human hand —
+      // same yellow as the participant hand badge.
+      style={
+        state === "hand-raised"
+          ? {
+              backgroundColor: "#ED9B00",
+              color: "#7C2D00",
+              borderColor: "transparent",
+            }
+          : undefined
+      }
     >
       {state === "muted" ? (
         <MicOff className="size-3" />

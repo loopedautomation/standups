@@ -10,6 +10,7 @@ import {
   TrackSource,
 } from "@livekit/rtc-node"
 import {
+  AGENT_BARGE_IN_ATTRIBUTE,
   type AgentActivityEvent,
   agentControlSchema,
   chatMessageSchema,
@@ -578,6 +579,21 @@ export async function runRealtimeAgent(opts: {
       if (control.type === "interrupt") {
         hardCut()
         callbacks.setState(idleState())
+      } else if (
+        control.type === "set-barge-in" &&
+        control.bargeIn !== undefined
+      ) {
+        bargeInPolicy.setEnabled(control.bargeIn)
+        local
+          .setAttributes({
+            [AGENT_BARGE_IN_ATTRIBUTE]: control.bargeIn ? "1" : "0",
+          })
+          .catch(() => undefined)
+        stats.config["barge-in"] =
+          control.bargeIn && vad
+            ? `silero vad, ${bargeIn.minSpeechMs}ms sustained`
+            : "off (manual interrupt only)"
+        publishStats()
       } else if (control.type === "set-turn-policy" && control.policy) {
         // The host changed how this agent takes turns; apply it immediately
         // (the worker owns state.turnPolicy and the published attribute).

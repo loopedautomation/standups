@@ -13,45 +13,16 @@ agents:
       kind: tty
       url: ws://demo-agent:8300/tty
       token_env: SCOUT_TTY_TOKEN
-    # Speech-to-speech interaction layer; tool work is delegated to the brain.
-    # provider defaults to openai. For Google's Live API instead (needs
-    # GEMINI_API_KEY or GOOGLE_API_KEY; Gemini cannot be gated, so a Gemini
-    # invite runs the agent with an open turn policy), use:
-    #   provider: gemini
-    #   model: gemini-2.5-flash-native-audio-preview-12-2025  # the default
-    #   voice: Puck  # or Charon, Kore, Fenrir, Aoede, ...
-    realtime:
-      model: gpt-realtime-2.1-mini
-      voice: cedar
-    # Fallback pipeline config (used only if `realtime` is removed).
-    stt:
-      provider: openai
-      model: gpt-4o-mini-transcribe
-    tts:
-      provider: openai
-      model: gpt-4o-mini-tts
-      voice: alloy
+    # No realtime/stt/tts blocks: the communication method (and voice) is
+    # chosen at invite time, and the schema defaults cover each mode. A
+    # registry block would only pin a default; add one back to do that.
 
-  # Pipeline-mode demo: STT -> looped-af brain -> ElevenLabs TTS. No realtime
-  # block, so this agent only spends tokens when addressed — the cheap mode.
   - id: echo
     name: Echo
-    description: Pipeline-mode twin of Scout — same brain, ElevenLabs voice, pay-per-turn.
+    description: Twin of Scout — same brain, pay-per-turn habits.
     greeting: "Hi, I'm Echo. Same brain as Scout, cheaper habits."
     brain:
       kind: tty
       url: ws://demo-agent:8300/tty
       token_env: SCOUT_TTY_TOKEN
-    stt:
-      provider: openai
-      model: gpt-4o-mini-transcribe
-    # ElevenLabs voices need a paid plan (free tier 402s on library voices
-    # via API). Until then Echo demos the pipeline with an OpenAI voice:
-    #   provider: elevenlabs
-    #   model: eleven_turbo_v2_5
-    #   voice: <a voice id from your ElevenLabs "My Voices">
-    tts:
-      provider: openai
-      model: gpt-4o-mini-tts
-      voice: ash
 

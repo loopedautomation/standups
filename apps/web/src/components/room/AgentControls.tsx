@@ -2,6 +2,7 @@
 
 import { useParticipantAttributes } from "@livekit/components-react"
 import {
+  AGENT_BARGE_IN_ATTRIBUTE,
   AGENT_DEAFENED_ATTRIBUTE,
   AGENT_MUTED_ATTRIBUTE,
   AGENT_POLICY_ATTRIBUTE,
@@ -18,6 +19,7 @@ import {
   Megaphone,
   Mic,
   MicOff,
+  Scissors,
   UserX,
   Zap,
 } from "lucide-react"
@@ -67,6 +69,9 @@ export function AgentControls({
     attributes?.[AGENT_DEAFENED_ATTRIBUTE] === "1" || state === "deafened"
   const muted = attributes?.[AGENT_MUTED_ATTRIBUTE] === "1" || state === "muted"
   const zapped = state === "zapped"
+  // Absent attribute (older bridge) reads as on — that's the deployment
+  // default, and a toggle that lies about its state is worse than none.
+  const bargeInOn = attributes?.[AGENT_BARGE_IN_ATTRIBUTE] !== "0"
   // Hand button cycles through the three turn policies.
   const nextPolicy: Record<TurnPolicy, TurnPolicy> = {
     open: "on-mention",
@@ -130,6 +135,21 @@ export function AgentControls({
           onClick={() => sendControl({ type: "zap", agentId })}
         >
           <Zap className="size-4" />
+        </ControlButton>
+        <ControlButton
+          disabled={disabled}
+          onTip={withCaption ? setTip : undefined}
+          tip={
+            bargeInOn
+              ? "Barge-in on — talking over the agent cuts it off"
+              : "Barge-in off — the agent finishes what it's saying"
+          }
+          active={!bargeInOn}
+          onClick={() =>
+            sendControl({ type: "set-barge-in", agentId, bargeIn: !bargeInOn })
+          }
+        >
+          <Scissors className="size-4" />
         </ControlButton>
         <ControlButton
           disabled={disabled}

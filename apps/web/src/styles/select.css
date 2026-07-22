@@ -1,0 +1,10 @@
+/* Looped select override — device names and voice labels routinely outrun
+   a panel-width select. Tailwind's `truncate` utility is unreliable on the
+   native control's rendered value, so the ellipsis lives here: the value
+   clips with … before the chevron instead of overflowing the border. */
+.select {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

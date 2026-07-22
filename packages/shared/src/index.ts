@@ -29,6 +29,9 @@ export const AGENT_DEAFENED_ATTRIBUTE = "agent.deafened"
 /** Participant attribute holding an agent's effective turn policy. */
 export const AGENT_POLICY_ATTRIBUTE = "agent.policy"
 
+/** "1"/"0": whether talking over this agent cuts it off (barge-in). */
+export const AGENT_BARGE_IN_ATTRIBUTE = "agent.bargein"
+
 /**
  * Participant attribute a client sets (value "active") once its in-browser
  * WASM transcriber is loaded, warmed, and proven real-time. The server
@@ -162,6 +165,9 @@ export const agentControlSchema = z.object({
     // Change how the agent takes turns for the rest of the meeting,
     // overriding the registry default. Carries `policy`.
     "set-turn-policy",
+    // Allow or forbid barge-in (speech cutting the agent off mid-reply).
+    // Carries `bargeIn`.
+    "set-barge-in",
     // Not a control the bridge acts on — removal goes through the control
     // API. Broadcast purely so the room can say who did it, like every
     // other agent control.
@@ -169,6 +175,7 @@ export const agentControlSchema = z.object({
   ]),
   agentId: z.string(),
   policy: turnPolicySchema.optional(),
+  bargeIn: z.boolean().optional(),
   /**
    * Who pressed the button. Optional so older clients still parse, and
    * carried on the message rather than resolved from the sender identity:
@@ -426,5 +433,9 @@ export const agentInfoSchema = z.object({
   // realtimeProvider means the agent defaults to pipeline mode.
   realtimeProvider: z.enum(["openai", "gemini"]).optional(),
   ttsProvider: z.enum(["openai", "elevenlabs"]).optional(),
+  // Registry-configured voices, so the invite UI can pre-select the real
+  // default instead of an arbitrary first list item.
+  realtimeVoice: z.string().optional(),
+  ttsVoice: z.string().optional(),
 })
 export type AgentInfo = z.infer<typeof agentInfoSchema>

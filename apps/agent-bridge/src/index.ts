@@ -50,6 +50,36 @@ app.use("*", async (c, next) => {
   return next()
 })
 
+const INVITE_MODES = ["realtime", "gemini", "pipeline", "elevenlabs"]
+
+/**
+ * Shared checks for per-invite mode/voice overrides (registry and URL
+ * invites alike). Which voice list applies depends on the resolved mode, so
+ * the voice check is membership in any namespace — the UI offers the right
+ * one. Returns an error message, or null when the overrides are fine.
+ */
+function validateOverrides(body: {
+  mode?: string
+  voice?: string
+}): string | null {
+  if (body.mode && !INVITE_MODES.includes(body.mode)) return "unknown mode"
+  // Would 401 in the worker where nobody sees it; fail the invite instead.
+  if (body.mode === "elevenlabs" && !process.env.ELEVENLABS_API_KEY) {
+    return "ELEVENLABS_API_KEY is not configured"
+  }
+  if (
+    body.voice &&
+    !(
+      (AGENT_VOICES as readonly string[]).includes(body.voice) ||
+      (GEMINI_VOICES as readonly string[]).includes(body.voice) ||
+      (OPENAI_TTS_VOICES as readonly string[]).includes(body.voice)
+    )
+  ) {
+    return "unknown voice"
+  }
+  return null
+}
+
 app.get("/agents", (c) => {
   const agents = loadRegistry().map(
     ({ id, name, description, avatar, realtime, tts }) => ({
@@ -61,6 +91,8 @@ app.get("/agents", (c) => {
       // interaction mode, without shipping the whole registry entry.
       realtimeProvider: realtime?.provider,
       ttsProvider: tts.provider,
+      realtimeVoice: realtime?.voice,
+      ttsVoice: tts.voice,
     }),
   )
   return c.json({ agents })
@@ -76,26 +108,8 @@ app.post("/rooms/:room/agents/:id", async (c) => {
     mode?: string
     voice?: string
   }
-  const MODES = ["realtime", "gemini", "pipeline", "elevenlabs"]
-  if (body.mode && !MODES.includes(body.mode)) {
-    return c.json({ error: "unknown mode" }, 400)
-  }
-  // Would 401 in the worker where nobody sees it; fail the invite instead.
-  if (body.mode === "elevenlabs" && !process.env.ELEVENLABS_API_KEY) {
-    return c.json({ error: "ELEVENLABS_API_KEY is not configured" }, 400)
-  }
-  // Which list applies depends on the resolved mode and provider, so the
-  // check here is membership in any namespace — the UI offers the right one.
-  if (
-    body.voice &&
-    !(
-      (AGENT_VOICES as readonly string[]).includes(body.voice) ||
-      (GEMINI_VOICES as readonly string[]).includes(body.voice) ||
-      (OPENAI_TTS_VOICES as readonly string[]).includes(body.voice)
-    )
-  ) {
-    return c.json({ error: "unknown voice" }, 400)
-  }
+  const overrideError = validateOverrides(body)
+  if (overrideError) return c.json({ error: overrideError }, 400)
 
   const participants = await rooms.listParticipants(room).catch(() => [])
   if (participants.some((p) => p.identity === `agent-${id}`)) {
@@ -117,16 +131,21 @@ app.post("/rooms/:room/agents/:id", async (c) => {
 // for the room's lifetime; dispatch metadata carries only the generated id.
 app.post("/rooms/:room/agents", async (c) => {
   const { room } = c.req.param()
-  let body: { url?: string; token?: string; name?: string; voice?: string }
+  let body: {
+    url?: string
+    token?: string
+    name?: string
+    mode?: string
+    voice?: string
+  }
   try {
     body = await c.req.json()
   } catch {
     return c.json({ error: "invalid body" }, 400)
   }
   if (!body.url) return c.json({ error: "url required" }, 400)
-  if (body.voice && !AGENT_VOICES.includes(body.voice as AgentVoice)) {
-    return c.json({ error: "unknown voice" }, 400)
-  }
+  const overrideError = validateOverrides(body)
+  if (overrideError) return c.json({ error: overrideError }, 400)
   const url = normalizeAgentUrl(body.url)
   if (!url) return c.json({ error: "invalid url" }, 400)
 
@@ -144,7 +163,7 @@ app.post("/rooms/:room/agents", async (c) => {
   }
   const id = registerDynamicAgent(spec)
   await dispatch.createDispatch(room, "looped-bridge", {
-    metadata: JSON.stringify({ agentId: id }),
+    metadata: JSON.stringify({ agentId: id, mode: body.mode, voice: body.voice }),
   })
   return c.json({
     ok: true,

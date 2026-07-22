@@ -6,6 +6,7 @@ import { useStore } from "@nanostores/react"
 import { Lock, Moon, Sun } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "react-toastify"
+import { Select } from "@/components/ui/Select"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { supportsVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { readHostKey } from "@/lib/hostKey"
@@ -172,10 +173,9 @@ function DeviceSelect({
   return (
     <label className="flex min-w-0 flex-col gap-1">
       <span className="text-base-content/70 text-sm">{label}</span>
-      {/* Device labels are long ("Studio Display Microphone (…)") — keep the
-          select at the panel width and truncate rather than overflow. */}
-      <select
-        className="select select-sm w-full max-w-full truncate"
+      {/* Device labels are long ("Studio Display Microphone (…)") — the
+          shared Select truncates them at the panel width. */}
+      <Select
         value={activeDeviceId}
         onChange={(e) => {
           void setActiveMediaDevice(e.target.value)
@@ -183,13 +183,11 @@ function DeviceSelect({
             localStorage.setItem(persistKey, e.target.value)
           } catch {}
         }}
-      >
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || label}
-          </option>
-        ))}
-      </select>
+        options={devices.map((d) => ({
+          value: d.deviceId,
+          label: d.label || label,
+        }))}
+      />
     </label>
   )
 }
