@@ -4,6 +4,7 @@ import { Mic, MicOff, Video as VideoIcon, VideoOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { Wordmark } from "@/components/brand/BrandMark"
+import { Select } from "@/components/ui/Select"
 import { ThemeToggle } from "@/components/brand/ThemeToggle"
 import type { JoinPreferences } from "@/components/room/RoomClient"
 import { useMediaPreview } from "@/hooks/useMediaPreview"
@@ -161,36 +162,32 @@ export function Lobby({ slug, onJoin }: LobbyProps) {
           {mics.length > 0 && (
             <label className="form-control w-full">
               <span className="label-text pb-1 text-xs">Microphone</span>
-              <select
-                className="select w-full"
+              <Select
+                size="md"
                 value={audioDeviceId ?? ""}
                 onChange={(e) => setAudioDeviceId(e.target.value || undefined)}
-              >
-                <option value="">Default microphone</option>
-                {mics.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Microphone"}
-                  </option>
-                ))}
-              </select>
+                placeholder="Default microphone"
+                options={mics.map((d) => ({
+                  value: d.deviceId,
+                  label: d.label || "Microphone",
+                }))}
+              />
             </label>
           )}
 
           {cameras.length > 0 && (
             <label className="form-control w-full">
               <span className="label-text pb-1 text-xs">Camera</span>
-              <select
-                className="select w-full"
+              <Select
+                size="md"
                 value={videoDeviceId ?? ""}
                 onChange={(e) => setVideoDeviceId(e.target.value || undefined)}
-              >
-                <option value="">Default camera</option>
-                {cameras.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Camera"}
-                  </option>
-                ))}
-              </select>
+                placeholder="Default camera"
+                options={cameras.map((d) => ({
+                  value: d.deviceId,
+                  label: d.label || "Camera",
+                }))}
+              />
             </label>
           )}
 

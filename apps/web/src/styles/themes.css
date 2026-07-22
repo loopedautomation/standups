@@ -3,9 +3,9 @@
   default: true;
   prefersdark: false;
   color-scheme: 'light';
-  --color-base-100: oklch(100% 0 0);
-  --color-base-200: oklch(97.5% 0 250);
-  --color-base-300: oklch(92% 0 250);
+  --color-base-100: #ffffff;
+  --color-base-200: #f7f7f7;
+  --color-base-300: #e5e5e5;
   --color-base-content: oklch(10% 0.01 280);
   --color-primary: oklch(58% 0.22 280);
   --color-primary-content: oklch(100% 0 0);
@@ -13,8 +13,11 @@
   --color-secondary-content: oklch(100% 0 0);
   --color-accent: oklch(58% 0.22 280);
   --color-accent-content: oklch(100% 0 0);
-  --color-neutral: oklch(42% 0.01 280);
-  --color-neutral-content: oklch(100% 0 0);
+  /* Neutral is a light surface here, not a dark chip — daisy's tooltips and
+     neutral-styled built-ins pick it up, and #4C4D52 read far too dark
+     against the white app. Content flips dark to match. */
+  --color-neutral: #f7f7f7;
+  --color-neutral-content: oklch(10% 0.01 280);
   --color-info: oklch(62% 0.17 255);
   --color-info-content: oklch(100% 0 0);
   --color-success: oklch(60% 0.11 160);

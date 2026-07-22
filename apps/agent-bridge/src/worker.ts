@@ -9,6 +9,7 @@ import * as elevenlabs from "@livekit/agents-plugin-elevenlabs"
 import * as openai from "@livekit/agents-plugin-openai"
 import * as silero from "@livekit/agents-plugin-silero"
 import {
+  AGENT_BARGE_IN_ATTRIBUTE,
   AGENT_DEAFENED_ATTRIBUTE,
   AGENT_MUTED_ATTRIBUTE,
   AGENT_POLICY_ATTRIBUTE,
@@ -147,7 +148,7 @@ function entryFromMetadata(metadata: string): ResolvedEntry {
   if (agentId.startsWith("dyn-")) {
     const spec = getDynamicAgent(agentId)
     if (!spec) throw new Error(`unknown dynamic agent: ${agentId}`)
-    return applyMode(
+    const dyn = applyMode(
       {
         id: agentId,
         name: spec.name,
@@ -166,6 +167,7 @@ function entryFromMetadata(metadata: string): ResolvedEntry {
       },
       mode,
     )
+    return applyVoice(dyn, voice)
   }
   const entry = loadRegistry().find((a) => a.id === agentId)
   if (!entry) throw new Error(`unknown agent: ${agentId}`)
@@ -237,6 +239,13 @@ export default defineAgent({
         .catch(() => undefined)
     }
     publishPolicy()
+    // Barge-in starts at the deployment default; the "set-barge-in" control
+    // flips it per meeting (realtime handles its own flips in realtime-agent).
+    local
+      .setAttributes({
+        [AGENT_BARGE_IN_ATTRIBUTE]: bargeIn.enabled ? "1" : "0",
+      })
+      .catch(() => undefined)
     const publishActivity = (event: AgentActivityEvent) => {
       local
         .publishData(new TextEncoder().encode(JSON.stringify(event)), {
@@ -534,6 +543,22 @@ export default defineAgent({
           } else if (control.type === "set-turn-policy" && control.policy) {
             sessionState.turnPolicy = control.policy
             publishPolicy()
+          } else if (
+            control.type === "set-barge-in" &&
+            control.bargeIn !== undefined
+          ) {
+            // The SDK reads interruption config live from its options; there
+            // is no public setter, so reach through the deprecated alias.
+            try {
+              ;(
+                session.options as unknown as { allowInterruptions?: boolean }
+              ).allowInterruptions = control.bargeIn
+            } catch {}
+            local
+              .setAttributes({
+                [AGENT_BARGE_IN_ATTRIBUTE]: control.bargeIn ? "1" : "0",
+              })
+              .catch(() => undefined)
           } else if (control.type === "zap") {
             // Wake the agent: unmuted and answering every turn for the zap
             // window, then back to its usual policy. "zapped" is the visible

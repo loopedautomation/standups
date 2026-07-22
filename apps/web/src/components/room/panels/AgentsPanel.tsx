@@ -23,7 +23,8 @@ import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { useSendAgentControl } from "@/hooks/useSendAgentControl"
 import { readHostKey } from "@/lib/hostKey"
 import { $agentActivity, $agentStats } from "@/stores/roomData"
-
+import { properCase } from "@/lib/casing"
+import { Select } from "@/components/ui/Select"
 /**
  * The voices offerable for an invite: the namespace follows the effective
  * mode's speaking provider. A realtime override on a pipeline-default agent
@@ -42,6 +43,27 @@ function voiceOptions(
   }
   if (mode === "" && agent.ttsProvider === "elevenlabs") return null
   return OPENAI_TTS_VOICES
+}
+
+/** The mode an invite without overrides actually runs: the registry's. */
+function defaultMode(agent: AgentInfo): AgentMode {
+  if (agent.realtimeProvider === "gemini") return "gemini"
+  if (agent.realtimeProvider) return "realtime"
+  return agent.ttsProvider === "elevenlabs" ? "elevenlabs" : "pipeline"
+}
+
+/**
+ * The voice pre-selected for a mode: the registry's own choice when it
+ * belongs to that mode's list, else the list's first entry.
+ */
+function defaultVoice(agent: AgentInfo, mode: AgentMode): string {
+  const options = voiceOptions(agent, mode)
+  if (!options) return ""
+  const registry =
+    mode === "realtime" || mode === "gemini"
+      ? agent.realtimeVoice
+      : agent.ttsVoice
+  return registry && options.includes(registry) ? registry : options[0]
 }
 
 export function AgentsPanel({ slug }: { slug: string }) {
@@ -85,14 +107,16 @@ export function AgentsPanel({ slug }: { slug: string }) {
   const registryIds = new Set(agents.map((a) => a.id))
   const dynamicAgents = [...agentParticipants.entries()]
     .filter(([id]) => id && !registryIds.has(id))
-    .map(([id, p]): AgentInfo => ({
-      id: id as string,
-      name: p.name || (id as string),
-      // The agent's own description, from its hello frame; fall back for
-      // agents on an older framework that don't report one.
-      description:
-        parseParticipantMeta(p.metadata)?.description ?? "Invited by URL",
-    }))
+    .map(
+      ([id, p]): AgentInfo => ({
+        id: id as string,
+        name: p.name || (id as string),
+        // The agent's own description, from its hello frame; fall back for
+        // agents on an older framework that don't report one.
+        description:
+          parseParticipantMeta(p.metadata)?.description ?? "Invited by URL",
+      }),
+    )
   const allAgents = [...agents, ...dynamicAgents]
 
   // A recently invited agent that's back in the room already shows as an
@@ -108,6 +132,7 @@ export function AgentsPanel({ slug }: { slug: string }) {
   const inviteByUrl = async (spec: {
     url: string
     token: string
+    mode?: AgentMode
     voice?: string
   }): Promise<boolean> => {
     setInvitingUrl(spec.url)
@@ -198,79 +223,86 @@ export function AgentsPanel({ slug }: { slug: string }) {
                     sendControl={(control) => sendControl(control, agent.name)}
                   />
                 ) : canInvite ? (
-                  <div className="space-y-1.5">
-                    <div className="flex gap-1.5">
-                      <select
-                        className="select select-xs min-w-0 flex-1 border border-base-300 text-[11px]"
-                        value={modes[agent.id] ?? ""}
-                        onChange={(e) => {
-                          setModes((m) => ({
-                            ...m,
-                            [agent.id]: e.target.value as AgentMode | "",
-                          }))
-                          // The mode decides which provider speaks, and voice
-                          // names don't carry across providers — back to default.
-                          setVoices((v) => ({ ...v, [agent.id]: "" }))
-                        }}
-                        aria-label="Interaction mode"
-                      >
-                        <option value="">Default</option>
-                        <option value="realtime">Realtime mini</option>
-                        <option value="gemini">Gemini Live</option>
-                        <option value="pipeline">OpenAI STT</option>
-                        <option value="elevenlabs">ElevenLabs STT</option>
-                      </select>
-                      {(() => {
-                        const options = voiceOptions(
-                          agent,
-                          modes[agent.id] ?? "",
-                        )
-                        // ElevenLabs voices are account-specific ids, not an
-                        // enumerable list — the registry's choice stands.
-                        if (!options) return null
-                        return (
-                          <select
-                            className="select select-xs min-w-0 flex-1 border border-base-300 text-[11px]"
-                            value={voices[agent.id] ?? ""}
-                            onChange={(e) =>
+                  (() => {
+                    // No blank placeholders: the selects rest on the agent's
+                    // registry defaults, so what's displayed is what joins.
+                    const mode = (modes[agent.id] ??
+                      defaultMode(agent)) as AgentMode
+                    const options = voiceOptions(agent, mode)
+                    const voice = voices[agent.id] || defaultVoice(agent, mode)
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="space-y-1.5">
+                          <Select
+                            size="xs"
+                            value={mode}
+                            onChange={(e) => {
+                              const next = e.target.value as AgentMode
+                              setModes((m) => ({ ...m, [agent.id]: next }))
+                              // Voice names don't carry across providers —
+                              // back to the new mode's default.
                               setVoices((v) => ({
                                 ...v,
-                                [agent.id]: e.target.value,
+                                [agent.id]: defaultVoice(agent, next),
                               }))
-                            }
-                            aria-label="Voice"
-                          >
-                            <option value="">Voice</option>
-                            {options.map((v) => (
-                              <option key={v} value={v}>
-                                {v}
-                              </option>
-                            ))}
-                          </select>
-                        )
-                      })()}
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm w-full"
-                      disabled={isInviting(agent.id)}
-                      onClick={() =>
-                        invite.mutate({
-                          agentId: agent.id,
-                          action: "invite",
-                          mode: modes[agent.id] || undefined,
-                          voice: voices[agent.id] || undefined,
-                        })
-                      }
-                    >
-                      {isInviting(agent.id) ? (
-                        <span className="loading loading-spinner loading-xs" />
-                      ) : (
-                        <Plus className="size-4" />
-                      )}
-                      Invite
-                    </button>
-                  </div>
+                            }}
+                            aria-label="Interaction mode"
+                            options={[
+                              { value: "gemini", label: "Gemini Live" },
+                              { value: "pipeline", label: "OpenAI STT" },
+                              { value: "elevenlabs", label: "ElevenLabs STT" },
+                              { value: "realtime", label: "GPT Realtime mini" },
+                              {
+                                value: "gpt-live",
+                                label: "GPT Live-1 (soon)",
+                                disabled: true,
+                              },
+                            ]}
+                          />
+                          {/* ElevenLabs voices are account-specific ids, not
+                              an enumerable list — the registry's choice
+                              stands. */}
+                          {options && (
+                            <Select
+                              size="xs"
+                              value={voice}
+                              onChange={(e) =>
+                                setVoices((v) => ({
+                                  ...v,
+                                  [agent.id]: e.target.value,
+                                }))
+                              }
+                              aria-label="Voice"
+                              options={options.map((v) => ({
+                                value: v,
+                                label: properCase(v),
+                              }))}
+                            />
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm w-full"
+                          disabled={isInviting(agent.id)}
+                          onClick={() =>
+                            invite.mutate({
+                              agentId: agent.id,
+                              action: "invite",
+                              mode,
+                              voice: voice || undefined,
+                            })
+                          }
+                        >
+                          {isInviting(agent.id) ? (
+                            <span className="loading loading-spinner loading-xs" />
+                          ) : (
+                            <Plus className="size-4" />
+                          )}
+                          Invite
+                        </button>
+                      </div>
+                    )
+                  })()
                 ) : null}
               </AgentCard>
             )
@@ -495,6 +527,14 @@ function forgetAgent(url: string): RecentAgent[] {
   return list
 }
 
+/** The voice list for a chosen mode (URL agents have no registry defaults). */
+function urlVoiceOptions(mode: AgentMode): readonly string[] | null {
+  if (mode === "gemini") return GEMINI_VOICES
+  if (mode === "realtime") return AGENT_VOICES
+  if (mode === "elevenlabs") return null
+  return OPENAI_TTS_VOICES
+}
+
 /** Bring any looped agent into the call by its TTY URL — no registration. */
 function InviteByUrl({
   inviteByUrl,
@@ -503,19 +543,29 @@ function InviteByUrl({
   inviteByUrl: (spec: {
     url: string
     token: string
+    mode?: AgentMode
     voice?: string
   }) => Promise<boolean>
   invitingUrl: string | null
 }) {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
+  const [mode, setMode] = useState<AgentMode>("realtime")
   const [voice, setVoice] = useState<string>(AGENT_VOICES[0])
   const busy = invitingUrl !== null
+  const voices = urlVoiceOptions(mode)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!url.trim()) return
-    if (await inviteByUrl({ url: url.trim(), token: token.trim(), voice })) {
+    if (
+      await inviteByUrl({
+        url: url.trim(),
+        token: token.trim(),
+        mode,
+        voice: voices ? voice : undefined,
+      })
+    ) {
       setUrl("")
       setToken("")
     }
@@ -539,18 +589,35 @@ function InviteByUrl({
         value={token}
         onChange={(e) => setToken(e.target.value)}
       />
-      <select
-        className="select select-sm w-full border border-base-300"
-        value={voice}
-        onChange={(e) => setVoice(e.target.value)}
-        aria-label="Agent voice"
-      >
-        {AGENT_VOICES.map((v) => (
-          <option key={v} value={v}>
-            Voice: {v}
-          </option>
-        ))}
-      </select>
+      <Select
+        size="sm"
+        value={mode}
+        onChange={(e) => {
+          const next = e.target.value as AgentMode
+          setMode(next)
+          // Voice names don't carry across providers.
+          setVoice(urlVoiceOptions(next)?.[0] ?? "")
+        }}
+        aria-label="Communication method"
+        options={[
+          { value: "realtime", label: "GPT Realtime mini" },
+          { value: "gemini", label: "Gemini Live" },
+          { value: "pipeline", label: "OpenAI STT" },
+          { value: "elevenlabs", label: "ElevenLabs STT" },
+        ]}
+      />
+      {voices && (
+        <Select
+          size="sm"
+          value={voice}
+          onChange={(e) => setVoice(e.target.value)}
+          aria-label="Agent voice"
+          options={voices.map((v) => ({
+            value: v,
+            label: `Voice: ${properCase(v)}`,
+          }))}
+        />
+      )}
       <button
         type="submit"
         className="btn btn-primary btn-sm w-full"

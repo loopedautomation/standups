@@ -79,7 +79,7 @@ export function bargeInConfigFromEnv(
  * duration that VAD measured.
  */
 export class BargeInPolicy {
-  readonly #config: BargeInConfig
+  #config: BargeInConfig
   #speakingSince: number | null = null
   #lastCutAt = Number.NEGATIVE_INFINITY
 
@@ -89,6 +89,11 @@ export class BargeInPolicy {
 
   get enabled(): boolean {
     return this.#config.enabled
+  }
+
+  /** Meeting-time switch (the "set-barge-in" control); thresholds stay. */
+  setEnabled(on: boolean): void {
+    this.#config = { ...this.#config, enabled: on }
   }
 
   /** True while the agent is audible — the only window a cut can happen in. */
