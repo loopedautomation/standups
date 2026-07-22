@@ -39,9 +39,11 @@ import { toast } from "react-toastify"
 import { Modal } from "@/components/ui/Modal"
 import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { useBackgroundBlur } from "@/hooks/useBackgroundBlur"
+import { useIncomingVideo } from "@/hooks/useIncomingVideo"
 import { useStickyDevices } from "@/hooks/useStickyDevices"
 import { useVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { $blur } from "@/stores/blur"
+import { $incomingVideoOff } from "@/stores/incomingVideo"
 import { type DeviceKind, setDevicePref } from "@/stores/devicePrefs"
 import { $videoTransform } from "@/stores/videoTransform"
 import { $openPanel, togglePanel } from "@/stores/panels"
@@ -78,6 +80,9 @@ export function ControlBar({
 
   const voiceIsolation = useStore($voiceIsolation)
   useVoiceIsolation(voiceIsolation)
+
+  const incomingVideoOff = useStore($incomingVideoOff)
+  useIncomingVideo(incomingVideoOff)
 
   // Keep the chosen mic/camera pinned against OS auto-switching on hot-plug.
   useStickyDevices()

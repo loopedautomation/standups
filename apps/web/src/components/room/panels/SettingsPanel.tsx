@@ -34,6 +34,10 @@ import {
   setPauseCameraOnBackground,
 } from "@/stores/camera"
 import { setDevicePref } from "@/stores/devicePrefs"
+import {
+  $incomingVideoOff,
+  setIncomingVideoOff,
+} from "@/stores/incomingVideo"
 import { $theme, setTheme } from "@/stores/theme"
 import { $voiceIsolation, setVoiceIsolation } from "@/stores/voiceIsolation"
 
@@ -42,6 +46,7 @@ export function SettingsPanel({ slug }: { slug: string }) {
   const blur = useStore($blur)
   const voiceIsolation = useStore($voiceIsolation)
   const pauseOnBackground = useStore($pauseCameraOnBackground)
+  const incomingVideoOff = useStore($incomingVideoOff)
 
   return (
     <div className="flex flex-col gap-6 p-4">
@@ -115,6 +120,27 @@ export function SettingsPanel({ slug }: { slug: string }) {
           label="Select speaker"
           persistKey="audioOutputDeviceId"
         />
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
+          Connection
+        </h3>
+        <label className="flex cursor-pointer items-center justify-between gap-4">
+          <span className="flex flex-col">
+            <span className="text-sm">Turn off incoming video</span>
+            <span className="text-base-content/60 text-xs">
+              Stops receiving other people's cameras to save bandwidth on a
+              poor connection. Audio and screenshares keep coming through.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            className="toggle toggle-primary"
+            checked={incomingVideoOff}
+            onChange={(e) => setIncomingVideoOff(e.target.checked)}
+          />
+        </label>
       </section>
 
       <section className="flex flex-col gap-2">
