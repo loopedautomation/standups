@@ -1,14 +1,27 @@
 "use client"
 
 import { useMediaDeviceSelect } from "@livekit/components-react"
-import type { RoomSettings } from "@meet/shared"
+import { type RoomSettings, videoTransformCss } from "@meet/shared"
 import { useStore } from "@nanostores/react"
-import { Lock, Moon, Sun } from "lucide-react"
+import {
+  FlipHorizontal2,
+  FlipVertical2,
+  Lock,
+  Moon,
+  RotateCw,
+  Sun,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { Select } from "@/components/ui/Select"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { supportsVoiceIsolation } from "@/hooks/useVoiceIsolation"
+import {
+  $videoTransform,
+  flipCameraH,
+  flipCameraV,
+  rotateCamera,
+} from "@/stores/videoTransform"
 import { readHostKey } from "@/lib/hostKey"
 import { $blur, setBlur } from "@/stores/blur"
 import {
@@ -229,6 +242,32 @@ function CameraSetting() {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <CameraSettingsPreview deviceId={shown} />
+      <div className="flex gap-1">
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs flex-1"
+          title="Rotate 90° clockwise"
+          onClick={rotateCamera}
+        >
+          <RotateCw className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs flex-1"
+          title="Flip horizontally"
+          onClick={flipCameraH}
+        >
+          <FlipHorizontal2 className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs flex-1"
+          title="Flip vertically"
+          onClick={flipCameraV}
+        >
+          <FlipVertical2 className="size-4" />
+        </button>
+      </div>
       <label className="flex min-w-0 flex-col gap-1">
         <span className="text-base-content/70 text-sm">Camera</span>
         <Select
@@ -259,10 +298,11 @@ function CameraSetting() {
   )
 }
 
-/** Mirrored preview of one camera device. */
+/** Mirrored preview of one camera device, honoring rotation/flip. */
 function CameraSettingsPreview({ deviceId }: { deviceId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const camId = deviceId
+  const transform = useStore($videoTransform)
   const [error, setError] = useState(false)
 
   useEffect(() => {
@@ -302,7 +342,8 @@ function CameraSettingsPreview({ deviceId }: { deviceId: string }) {
       autoPlay
       muted
       playsInline
-      className="aspect-video w-full scale-x-[-1] rounded-field bg-base-300 object-cover"
+      className="aspect-video w-full rounded-field bg-base-300 object-cover"
+      style={{ transform: videoTransformCss(transform, true) }}
     />
   )
 }

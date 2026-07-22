@@ -8,7 +8,12 @@ import {
   useParticipants,
   useRoomContext,
 } from "@livekit/components-react"
-import { HAND_ATTRIBUTE, parseParticipantMeta } from "@meet/shared"
+import {
+  HAND_ATTRIBUTE,
+  parseParticipantMeta,
+  serializeVideoTransform,
+  VIDEO_TRANSFORM_ATTRIBUTE,
+} from "@meet/shared"
 import { useStore } from "@nanostores/react"
 import { ConnectionQuality, type LocalParticipant } from "livekit-client"
 import {
@@ -35,6 +40,7 @@ import { Modal } from "@/components/ui/Modal"
 import { useBackgroundBlur } from "@/hooks/useBackgroundBlur"
 import { useVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { $blur } from "@/stores/blur"
+import { $videoTransform } from "@/stores/videoTransform"
 import { $openPanel, togglePanel } from "@/stores/panels"
 import { $voiceIsolation } from "@/stores/voiceIsolation"
 
@@ -69,6 +75,17 @@ export function ControlBar({
 
   const voiceIsolation = useStore($voiceIsolation)
   useVoiceIsolation(voiceIsolation)
+
+  // Publish the camera orientation so every client renders this feed the
+  // same way — the track itself is untouched, viewers apply CSS.
+  const videoTransform = useStore($videoTransform)
+  useEffect(() => {
+    localParticipant
+      ?.setAttributes({
+        [VIDEO_TRANSFORM_ATTRIBUTE]: serializeVideoTransform(videoTransform),
+      })
+      .catch(() => undefined)
+  }, [videoTransform, localParticipant])
 
   const { handRaised, toggleHand } = useRaiseHand(localParticipant)
 

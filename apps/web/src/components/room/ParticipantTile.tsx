@@ -9,7 +9,13 @@ import {
   useParticipantAttributes,
   VideoTrack,
 } from "@livekit/components-react"
-import { HAND_ATTRIBUTE, parseParticipantMeta } from "@meet/shared"
+import {
+  HAND_ATTRIBUTE,
+  parseParticipantMeta,
+  parseVideoTransform,
+  VIDEO_TRANSFORM_ATTRIBUTE,
+  videoTransformCss,
+} from "@meet/shared"
 import { ConnectionQuality, Track } from "livekit-client"
 import { Hand, MicOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -86,9 +92,15 @@ export function ParticipantTile({ trackRef, compact }: ParticipantTileProps) {
         <VideoTrack
           ref={videoRef}
           trackRef={trackRef}
-          className={`size-full ${portrait && !compact ? "object-contain" : "object-cover"} ${
-            participant.isLocal ? "scale-x-[-1]" : ""
-          }`}
+          className={`size-full ${portrait && !compact ? "object-contain" : "object-cover"}`}
+          // The publisher's rotation/flip rides their attributes; composed
+          // with the local self-view mirror (flipH and mirror cancel).
+          style={{
+            transform: videoTransformCss(
+              parseVideoTransform(attributes?.[VIDEO_TRANSFORM_ATTRIBUTE]),
+              participant.isLocal,
+            ),
+          }}
         />
       ) : (
         <div className="flex size-full items-center justify-center">

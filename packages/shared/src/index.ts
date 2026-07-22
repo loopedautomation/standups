@@ -33,6 +33,60 @@ export const AGENT_POLICY_ATTRIBUTE = "agent.policy"
 export const AGENT_BARGE_IN_ATTRIBUTE = "agent.bargein"
 
 /**
+ * How a participant's camera feed should be displayed, e.g. "90,h" —
+ * rotation degrees plus flip flags. Published as an attribute so every
+ * client renders the same orientation with plain CSS; the encoded track
+ * itself is untouched.
+ */
+export const VIDEO_TRANSFORM_ATTRIBUTE = "video.transform"
+
+export type VideoTransform = {
+  rotation: 0 | 90 | 180 | 270
+  flipH: boolean
+  flipV: boolean
+}
+
+export const defaultVideoTransform: VideoTransform = {
+  rotation: 0,
+  flipH: false,
+  flipV: false,
+}
+
+export function serializeVideoTransform(t: VideoTransform): string {
+  const parts = [String(t.rotation)]
+  if (t.flipH) parts.push("h")
+  if (t.flipV) parts.push("v")
+  return parts.join(",")
+}
+
+export function parseVideoTransform(raw: string | undefined): VideoTransform {
+  if (!raw) return defaultVideoTransform
+  const parts = raw.split(",")
+  const rotation = Number(parts[0])
+  return {
+    rotation:
+      rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0,
+    flipH: parts.includes("h"),
+    flipV: parts.includes("v"),
+  }
+}
+
+/**
+ * The CSS transform for a feed, composing the published transform with the
+ * local self-view mirror (mirror and flipH cancel each other out).
+ */
+export function videoTransformCss(
+  t: VideoTransform,
+  mirror = false,
+): string | undefined {
+  const parts: string[] = []
+  if (t.rotation !== 0) parts.push(`rotate(${t.rotation}deg)`)
+  if (t.flipH !== mirror) parts.push("scaleX(-1)")
+  if (t.flipV) parts.push("scaleY(-1)")
+  return parts.length ? parts.join(" ") : undefined
+}
+
+/**
  * Participant attribute a client sets (value "active") once its in-browser
  * WASM transcriber is loaded, warmed, and proven real-time. The server
  * transcriber skips mics whose owner advertises this and resumes them the
