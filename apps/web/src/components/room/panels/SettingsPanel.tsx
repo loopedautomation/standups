@@ -139,22 +139,6 @@ export function SettingsPanel({ slug }: { slug: string }) {
         </label>
       </section>
 
-      <section className="flex flex-col gap-2">
-        <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
-          Keyboard shortcuts
-        </h3>
-        <ul className="flex flex-col gap-1 text-sm">
-          <li className="flex items-center justify-between">
-            <span>Toggle microphone</span>
-            <kbd className="kbd kbd-sm">⌘ D</kbd>
-          </li>
-          <li className="flex items-center justify-between">
-            <span>Toggle camera</span>
-            <kbd className="kbd kbd-sm">⌘ E</kbd>
-          </li>
-        </ul>
-      </section>
-
       {/* Everything above is personal — it changes only your own audio, video
           and view. Host-only room controls are cordoned off below, so it's
           clear which settings affect just you and which affect the meeting. */}
