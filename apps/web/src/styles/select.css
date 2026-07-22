@@ -3,19 +3,9 @@
    native control's rendered value, so the ellipsis lives here: the value
    clips with … before the chevron instead of overflowing the border. */
 .select {
-  /* daisy renders .select as inline-flex, and text-overflow does nothing on
-     flex containers — its own ellipsis rule silently never applied. The
-     chevron is a background image (not a flex child), so block display is
-     safe, and with it the ellipsis finally bites. Vertical centering moves
-     from flex alignment to line-height. */
-  display: block;
-  line-height: calc(var(--size) - var(--border) * 2);
-  /* A native select's intrinsic min-content width is its longest option —
-     without this, a long device name widens the select past its column and
-     the whole panel scrolls sideways. */
+  /* Keep the trigger from adopting its content's min-content width and
+     pushing its column sideways; the inner span does the ellipsizing. */
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
