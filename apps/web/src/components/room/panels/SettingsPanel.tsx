@@ -4,7 +4,7 @@ import { useMediaDeviceSelect } from "@livekit/components-react"
 import type { RoomSettings } from "@meet/shared"
 import { useStore } from "@nanostores/react"
 import { Lock, Moon, Sun } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { Select } from "@/components/ui/Select"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
@@ -50,7 +50,10 @@ export function SettingsPanel({ slug }: { slug: string }) {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      {/* min-w-0 at every flex level: the selects' longest option would
+          otherwise set the section's min-content width and overflow the
+          panel sideways. */}
+      <section className="flex min-w-0 flex-col gap-3">
         <h3 className="font-medium text-base-content/60 text-xs uppercase tracking-wide">
           Devices
         </h3>
@@ -69,6 +72,7 @@ export function SettingsPanel({ slug }: { slug: string }) {
           label="Speaker"
           persistKey="audioOutputDeviceId"
         />
+        <DevicePreview />
       </section>
 
       {supportsVoiceIsolation() && (
@@ -152,6 +156,96 @@ export function SettingsPanel({ slug }: { slug: string }) {
           and view. Host-only room controls are cordoned off below, so it's
           clear which settings affect just you and which affect the meeting. */}
       <HostControls slug={slug} />
+    </div>
+  )
+}
+
+/**
+ * Live preview of the selected mic and camera, so a device change can be
+ * judged before the meeting hears/sees it. A second capture of the active
+ * devices (browsers allow this alongside the published tracks), torn down
+ * with the panel. The meter is a simple time-domain RMS at ~30fps.
+ */
+function DevicePreview() {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const { activeDeviceId: micId } = useMediaDeviceSelect({ kind: "audioinput" })
+  const { activeDeviceId: camId } = useMediaDeviceSelect({ kind: "videoinput" })
+  const [level, setLevel] = useState(0)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let stream: MediaStream | null = null
+    let audioCtx: AudioContext | null = null
+    let raf = 0
+
+    const acquire = async () => {
+      setError(false)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: micId ? { exact: micId } : undefined },
+          video: { deviceId: camId ? { exact: camId } : undefined },
+        })
+      } catch {
+        if (!cancelled) setError(true)
+        return
+      }
+      if (cancelled) {
+        for (const t of stream.getTracks()) t.stop()
+        return
+      }
+      if (videoRef.current) videoRef.current.srcObject = stream
+      audioCtx = new AudioContext()
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 512
+      audioCtx.createMediaStreamSource(stream).connect(analyser)
+      const samples = new Float32Array(analyser.fftSize)
+      const tick = () => {
+        analyser.getFloatTimeDomainData(samples)
+        let sum = 0
+        for (const s of samples) sum += s * s
+        // RMS is tiny for speech at normal levels — scale so talking fills
+        // most of the bar and clipping pins it.
+        setLevel(Math.min(1, Math.sqrt(sum / samples.length) * 4))
+        raf = requestAnimationFrame(tick)
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    void acquire()
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      void audioCtx?.close().catch(() => undefined)
+      for (const t of stream?.getTracks() ?? []) t.stop()
+    }
+  }, [micId, camId])
+
+  if (error) {
+    return (
+      <p className="text-error text-xs">
+        Couldn't open the selected devices for preview.
+      </p>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {/* biome-ignore lint/a11y/useMediaCaption: local camera preview */}
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        playsInline
+        className="aspect-video w-full scale-x-[-1] rounded-field bg-base-300 object-cover"
+      />
+      <div className="flex items-center gap-2">
+        <span className="text-base-content/60 text-xs">Mic</span>
+        <progress
+          className="progress progress-primary h-2 flex-1"
+          value={level}
+          max={1}
+        />
+      </div>
     </div>
   )
 }

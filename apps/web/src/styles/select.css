@@ -3,6 +3,10 @@
    native control's rendered value, so the ellipsis lives here: the value
    clips with … before the chevron instead of overflowing the border. */
 .select {
+  /* A native select's intrinsic min-content width is its longest option —
+     without this, a long device name widens the select past its column and
+     the whole panel scrolls sideways. */
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
