@@ -444,9 +444,23 @@ function DeviceMenu({
 }) {
   const { devices, activeDeviceId, setActiveMediaDevice } =
     useMediaDeviceSelect({ kind })
+  // Camera menus preview: the tile at the top shows the hovered device (or
+  // the current one), so a switch can be judged before it's clicked. Open
+  // state is tracked so the preview camera runs only while the menu shows.
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState<string | null>(null)
 
   return (
-    <div className="dropdown dropdown-bottom">
+    <div
+      className="dropdown dropdown-bottom"
+      onFocusCapture={() => setOpen(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setOpen(false)
+          setHovered(null)
+        }
+      }}
+    >
       <button
         type="button"
         tabIndex={0}
@@ -458,6 +472,11 @@ function DeviceMenu({
       {/* Wide enough that device names read in full — the trigger button can
           truncate, the options themselves shouldn't. Long outliers wrap. */}
       <ul className="menu dropdown-content z-30 mt-1 w-80 max-w-[90vw] rounded-box bg-base-100 p-2 shadow-lg ring-1 ring-base-300">
+        {kind === "videoinput" && open && (
+          <li className="pointer-events-none mb-2">
+            <CameraPreview deviceId={hovered ?? activeDeviceId} />
+          </li>
+        )}
         {devices.map((d) => (
           <li key={d.deviceId}>
             <button
@@ -465,6 +484,10 @@ function DeviceMenu({
               // DaisyUI v5 highlights the active menu row with `menu-active`
               // (renamed from `active` in v4).
               className={d.deviceId === activeDeviceId ? "menu-active" : ""}
+              onMouseEnter={() =>
+                kind === "videoinput" && setHovered(d.deviceId)
+              }
+              onMouseLeave={() => setHovered(null)}
               onClick={() => {
                 void setActiveMediaDevice(d.deviceId)
                 try {
@@ -484,5 +507,57 @@ function DeviceMenu({
         {children}
       </ul>
     </div>
+  )
+}
+
+/**
+ * The camera the pointer is over, live. A fresh capture per device — the
+ * stream restarts on hover moves, which beats holding every camera open.
+ */
+function CameraPreview({ deviceId }: { deviceId: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let stream: MediaStream | null = null
+    setFailed(false)
+    void navigator.mediaDevices
+      .getUserMedia({
+        video: { deviceId: deviceId ? { exact: deviceId } : undefined },
+      })
+      .then((s) => {
+        if (cancelled) {
+          for (const t of s.getTracks()) t.stop()
+          return
+        }
+        stream = s
+        if (videoRef.current) videoRef.current.srcObject = s
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+    return () => {
+      cancelled = true
+      for (const t of stream?.getTracks() ?? []) t.stop()
+    }
+  }, [deviceId])
+
+  if (failed) {
+    return (
+      <span className="block rounded-field bg-base-300 p-2 text-center text-xs">
+        Preview unavailable
+      </span>
+    )
+  }
+  return (
+    // biome-ignore lint/a11y/useMediaCaption: local camera preview
+    <video
+      ref={videoRef}
+      autoPlay
+      muted
+      playsInline
+      className="aspect-video w-full scale-x-[-1] rounded-field bg-base-300 object-cover p-0"
+    />
   )
 }
