@@ -1,7 +1,11 @@
 "use client"
 
 import { useRoomContext } from "@livekit/components-react"
-import { chatMessageSchema, DataTopic, parseParticipantMeta } from "@meet/shared"
+import {
+  chatMessageSchema,
+  DataTopic,
+  parseParticipantMeta,
+} from "@meet/shared"
 import { RoomEvent } from "livekit-client"
 import { useEffect } from "react"
 
@@ -49,12 +53,15 @@ export function useMeetingSounds(enabled: boolean) {
       if (parseParticipantMeta(p.metadata)?.kind === "waiting") return
       playCue("leave")
     }
-    const onData = (payload: Uint8Array, _p: unknown, _k: unknown, topic?: string) => {
+    const onData = (
+      payload: Uint8Array,
+      _p: unknown,
+      _k: unknown,
+      topic?: string,
+    ) => {
       if (topic !== DataTopic.Chat) return
       try {
-        chatMessageSchema.parse(
-          JSON.parse(new TextDecoder().decode(payload)),
-        )
+        chatMessageSchema.parse(JSON.parse(new TextDecoder().decode(payload)))
         playCue("chat")
       } catch {}
     }

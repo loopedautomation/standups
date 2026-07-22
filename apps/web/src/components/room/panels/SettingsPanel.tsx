@@ -1,9 +1,6 @@
 "use client"
 
-import {
-  useMediaDeviceSelect,
-  useRoomContext,
-} from "@livekit/components-react"
+import { useMediaDeviceSelect, useRoomContext } from "@livekit/components-react"
 import {
   type RoomSettings,
   serializeVideoTransform,
@@ -22,20 +19,21 @@ import {
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { NetworkSection } from "@/components/room/CallHealth"
+import { MicTest, SpeakerTest } from "@/components/room/panels/DeviceTests"
 import { Select } from "@/components/ui/Select"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { supportsVoiceIsolation } from "@/hooks/useVoiceIsolation"
-import {
-  $videoTransform,
-  rotatedCw,
-  setVideoTransform,
-} from "@/stores/videoTransform"
+import { BACKGROUNDS, type CameraEffect } from "@/lib/backgrounds"
 import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { readHostKey } from "@/lib/hostKey"
-import { MicTest, SpeakerTest } from "@/components/room/panels/DeviceTests"
-import { BACKGROUNDS, type CameraEffect } from "@/lib/backgrounds"
 import { applyAutoGain, applySendQuality } from "@/lib/liveConstraints"
+import {
+  $pauseCameraOnBackground,
+  setPauseCameraOnBackground,
+} from "@/stores/camera"
 import { $cameraEffect, setCameraEffect } from "@/stores/cameraEffect"
+import { setDevicePref } from "@/stores/devicePrefs"
+import { $incomingVideoOff, setIncomingVideoOff } from "@/stores/incomingVideo"
 import {
   $autoDataSaver,
   $autoGain,
@@ -55,16 +53,12 @@ import {
   setPushToTalk,
   setSendQuality,
 } from "@/stores/preferences"
-import {
-  $pauseCameraOnBackground,
-  setPauseCameraOnBackground,
-} from "@/stores/camera"
-import { setDevicePref } from "@/stores/devicePrefs"
-import {
-  $incomingVideoOff,
-  setIncomingVideoOff,
-} from "@/stores/incomingVideo"
 import { $theme, setTheme } from "@/stores/theme"
+import {
+  $videoTransform,
+  rotatedCw,
+  setVideoTransform,
+} from "@/stores/videoTransform"
 import { $voiceIsolation, setVoiceIsolation } from "@/stores/voiceIsolation"
 
 export function SettingsPanel({ slug }: { slug: string }) {
@@ -266,8 +260,8 @@ export function SettingsPanel({ slug }: { slug: string }) {
           <span className="flex flex-col">
             <span className="text-sm">Turn off incoming video</span>
             <span className="text-base-content/60 text-xs">
-              Stops receiving other people's cameras to save bandwidth on a
-              poor connection. Audio and screenshares keep coming through.
+              Stops receiving other people's cameras to save bandwidth on a poor
+              connection. Audio and screenshares keep coming through.
             </span>
           </span>
           <input

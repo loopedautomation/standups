@@ -11,7 +11,7 @@
 
 Self-hostable video meetings with first-class AI agent participants. Share a link, talk face to face — and invite an agent into the room. It listens to the conversation, speaks its answers, can be interrupted mid-sentence, and streams its tool calls (web lookups, code, APIs) into the meeting as it works. Open source, powered by [LiveKit](https://livekit.io) and the [Looped agent framework](https://github.com/loopedautomation/agent-framework).
 
-**Contents:** [Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Your own agents](#registering-your-own-agents) · [Self-hosting](./selfhost.md) · [Development](#development) · [Theming](#theming--whitelabel)
+**Contents:** [Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Your own agents](#registering-your-own-agents) · [cal.com](./calcom.md) · [Self-hosting](./selfhost.md) · [Development](#development) · [Theming](#theming--whitelabel)
 
 ## Features
 

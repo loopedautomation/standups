@@ -68,12 +68,34 @@ describe("describeAgentControl", () => {
     ).toBeNull()
   })
 
+  it("names the direction when barge-in is toggled", () => {
+    expect(
+      describeAgentControl(
+        { type: "set-barge-in", agentId: "scout", bargeIn: true },
+        "Scout",
+      ),
+    ).toBe("turned barge-in on for Scout")
+    expect(
+      describeAgentControl(
+        { type: "set-barge-in", agentId: "scout", bargeIn: false },
+        "Scout",
+      ),
+    ).toBe("turned barge-in off for Scout")
+  })
+
+  it("stays quiet on a barge-in change with no direction to report", () => {
+    expect(
+      describeAgentControl({ type: "set-barge-in", agentId: "scout" }, "S"),
+    ).toBeNull()
+  })
+
   it("covers every control type, so a new one can't ship unannounced", () => {
     for (const type of agentControlSchema.shape.type.options) {
       const control: AgentControl = {
         type,
         agentId: "scout",
         ...(type === "set-turn-policy" ? { policy: "open" as const } : {}),
+        ...(type === "set-barge-in" ? { bargeIn: true } : {}),
       }
       expect(describeAgentControl(control, "Scout")).toBeTruthy()
     }

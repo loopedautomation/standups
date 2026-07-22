@@ -1,11 +1,7 @@
 "use client"
 
 import { useRoomContext } from "@livekit/components-react"
-import {
-  type RemoteTrackPublication,
-  RoomEvent,
-  Track,
-} from "livekit-client"
+import { type RemoteTrackPublication, RoomEvent, Track } from "livekit-client"
 import { useEffect } from "react"
 
 /**

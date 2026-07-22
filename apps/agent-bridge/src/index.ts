@@ -3,10 +3,10 @@ import { AgentServer, initializeLogger, ServerOptions } from "@livekit/agents"
 import {
   AGENT_VOICES,
   type AgentVoice,
-  GEMINI_VOICES,
-  OPENAI_TTS_VOICES,
   emptySharedDoc,
+  GEMINI_VOICES,
   mergeSharedDoc,
+  OPENAI_TTS_VOICES,
   type SharedDoc,
   sharedDocSchema,
 } from "@meet/shared"
@@ -163,7 +163,11 @@ app.post("/rooms/:room/agents", async (c) => {
   }
   const id = registerDynamicAgent(spec)
   await dispatch.createDispatch(room, "looped-bridge", {
-    metadata: JSON.stringify({ agentId: id, mode: body.mode, voice: body.voice }),
+    metadata: JSON.stringify({
+      agentId: id,
+      mode: body.mode,
+      voice: body.voice,
+    }),
   })
   return c.json({
     ok: true,

@@ -22,17 +22,17 @@ import {
   bargeInConfigFromEnv,
   PcmRingBuffer,
 } from "./barge-in.js"
-import type { TtyServerFrame } from "./looped-tty.js"
-import type { Brain } from "./looped-webhook.js"
-import { postDebugEvent } from "./meeting-context.js"
 import {
   GEMINI_INPUT_SAMPLE_RATE,
   GeminiLiveSession,
 } from "./gemini-live-session.js"
+import type { TtyServerFrame } from "./looped-tty.js"
+import type { Brain } from "./looped-webhook.js"
+import { postDebugEvent } from "./meeting-context.js"
 import {
   REALTIME_SAMPLE_RATE,
-  type RealtimeSessionOptions,
   RealtimeSession,
+  type RealtimeSessionOptions,
 } from "./realtime-session.js"
 import type { AgentEntry } from "./registry.js"
 import { attachScreenFrame, type ScreenCapture } from "./screen-capture.js"

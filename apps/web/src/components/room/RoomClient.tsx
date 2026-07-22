@@ -11,6 +11,7 @@ import { MeetingView } from "@/components/room/MeetingView"
 import { WaitingRoom } from "@/components/room/WaitingRoom"
 import { readVoiceIsolationPref } from "@/hooks/useVoiceIsolation"
 import { readDevicePref } from "@/stores/devicePrefs"
+import { $isHost } from "@/stores/host"
 import {
   $autoGain,
   $sendQuality,
@@ -18,7 +19,6 @@ import {
   SEND_QUALITY_RESOLUTION,
   type SendQuality,
 } from "@/stores/preferences"
-import { $isHost } from "@/stores/host"
 
 const queryClient = new QueryClient()
 

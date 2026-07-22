@@ -157,7 +157,8 @@ export function toolDeclarations(
         properties: {
           request: {
             type: "string",
-            description: "What to work on, in full sentences and self-contained.",
+            description:
+              "What to work on, in full sentences and self-contained.",
           },
         },
         required: ["request"],

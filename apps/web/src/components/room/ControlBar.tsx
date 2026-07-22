@@ -37,26 +37,23 @@ import {
 import { useEffect, useRef, useState } from "react"
 import { toast } from "react-toastify"
 import { Modal } from "@/components/ui/Modal"
-import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { useCameraEffect } from "@/hooks/useCameraEffect"
 import { useIncomingVideo } from "@/hooks/useIncomingVideo"
 import { useMeetingSounds } from "@/hooks/useMeetingSounds"
 import { usePushToTalk } from "@/hooks/usePushToTalk"
 import { useStickyDevices } from "@/hooks/useStickyDevices"
 import { useVoiceIsolation } from "@/hooks/useVoiceIsolation"
+import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { $cameraEffect } from "@/stores/cameraEffect"
-import {
-  $incomingVideoOff,
-  setIncomingVideoOff,
-} from "@/stores/incomingVideo"
+import { type DeviceKind, setDevicePref } from "@/stores/devicePrefs"
+import { $incomingVideoOff, setIncomingVideoOff } from "@/stores/incomingVideo"
+import { $openPanel, togglePanel } from "@/stores/panels"
 import {
   $autoDataSaver,
   $meetingSounds,
   $pushToTalk,
 } from "@/stores/preferences"
-import { type DeviceKind, setDevicePref } from "@/stores/devicePrefs"
 import { $videoTransform } from "@/stores/videoTransform"
-import { $openPanel, togglePanel } from "@/stores/panels"
 import { $voiceIsolation } from "@/stores/voiceIsolation"
 
 export function ControlBar({

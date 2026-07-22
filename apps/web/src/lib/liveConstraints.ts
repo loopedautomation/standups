@@ -32,8 +32,6 @@ export async function applySendQuality(
   if (!track) return
   await track.restartTrack({
     resolution:
-      quality === "auto"
-        ? AUTO_RESOLUTION
-        : SEND_QUALITY_RESOLUTION[quality],
+      quality === "auto" ? AUTO_RESOLUTION : SEND_QUALITY_RESOLUTION[quality],
   })
 }

@@ -309,6 +309,10 @@ export function describeAgentControl(
       return control.policy
         ? `set ${agentName}'s response mode to ${control.policy}`
         : null
+    case "set-barge-in":
+      return control.bargeIn === undefined
+        ? null
+        : `turned barge-in ${control.bargeIn ? "on" : "off"} for ${agentName}`
     default:
       return null
   }

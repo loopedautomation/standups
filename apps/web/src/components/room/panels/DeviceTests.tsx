@@ -39,9 +39,9 @@ export function MicTest() {
       const url = URL.createObjectURL(new Blob(chunks))
       const audio = new Audio(url)
       // Route playback to the chosen speaker where the browser allows it.
-      void (
-        audio as { setSinkId?: (id: string) => Promise<void> }
-      ).setSinkId?.(speakerId ?? "")?.catch(() => undefined)
+      void (audio as { setSinkId?: (id: string) => Promise<void> })
+        .setSinkId?.(speakerId ?? "")
+        ?.catch(() => undefined)
       setPhase("playing")
       audio.onended = () => {
         URL.revokeObjectURL(url)
@@ -89,9 +89,9 @@ export function SpeakerTest() {
     try {
       const ctx = new AudioContext()
       // Chrome routes AudioContexts; elsewhere the default output is used.
-      await (
-        ctx as unknown as { setSinkId?: (id: string) => Promise<void> }
-      ).setSinkId?.(speakerId ?? "")?.catch(() => undefined)
+      await (ctx as unknown as { setSinkId?: (id: string) => Promise<void> })
+        .setSinkId?.(speakerId ?? "")
+        ?.catch(() => undefined)
       const gain = ctx.createGain()
       gain.gain.value = 0.12
       gain.connect(ctx.destination)

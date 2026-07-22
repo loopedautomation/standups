@@ -89,6 +89,7 @@ export function Select({
       </button>
       {open && (
         <ul
+          // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: intentional listbox — the daisyUI `menu` <ul> is the popup, its <li><button role="option"> children are the options.
           role="listbox"
           className="menu dropdown-content z-30 mt-1 max-h-64 w-full min-w-full flex-nowrap overflow-y-auto rounded-box bg-base-100 p-2 shadow-lg ring-1 ring-base-300"
         >

@@ -12,7 +12,9 @@ const POLL_MS = 2000
 function formatKbps(bitsPerSecond: number): string {
   if (!bitsPerSecond) return "—"
   const kbps = bitsPerSecond / 1000
-  return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbps` : `${Math.round(kbps)} kbps`
+  return kbps >= 1000
+    ? `${(kbps / 1000).toFixed(1)} Mbps`
+    : `${Math.round(kbps)} kbps`
 }
 
 const QUALITY_LABEL: Record<ConnectionQuality, string> = {
@@ -118,7 +120,9 @@ export function NetworkSection() {
         />
         <StatRow
           label="Latency (RTT)"
-          value={stats.rttMs !== undefined ? `${Math.round(stats.rttMs)} ms` : "—"}
+          value={
+            stats.rttMs !== undefined ? `${Math.round(stats.rttMs)} ms` : "—"
+          }
         />
         <StatRow
           label="Jitter"
@@ -208,8 +212,8 @@ function CallHealthModal({
       </ul>
       <p className="pt-3 text-base-content/50 text-xs">
         Quality is reported by the server for each participant. Bitrates are
-        measured from this device: what you send, and what you receive from
-        the others.
+        measured from this device: what you send, and what you receive from the
+        others.
       </p>
     </Modal>
   )

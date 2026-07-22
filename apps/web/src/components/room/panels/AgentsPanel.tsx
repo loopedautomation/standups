@@ -14,6 +14,7 @@ import { Bot, ChevronDown, Plus, Wrench } from "lucide-react"
 import { useState } from "react"
 import { toast } from "react-toastify"
 import { AgentControls } from "@/components/room/AgentControls"
+import { Select } from "@/components/ui/Select"
 import {
   type AgentMode,
   useAgentInvite,
@@ -21,10 +22,10 @@ import {
 import { useAgents } from "@/hooks/queries/useAgents"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { useSendAgentControl } from "@/hooks/useSendAgentControl"
+import { properCase } from "@/lib/casing"
 import { readHostKey } from "@/lib/hostKey"
 import { $agentActivity, $agentStats } from "@/stores/roomData"
-import { properCase } from "@/lib/casing"
-import { Select } from "@/components/ui/Select"
+
 /**
  * The voices offerable for an invite: the namespace follows the effective
  * mode's speaking provider. A realtime override on a pipeline-default agent

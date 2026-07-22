@@ -35,5 +35,8 @@ export function setVideoTransform(t: VideoTransform) {
 
 /** Quarter turn clockwise; four presses come back around. */
 export function rotatedCw(t: VideoTransform): VideoTransform {
-  return { ...t, rotation: ((t.rotation + 90) % 360) as VideoTransform["rotation"] }
+  return {
+    ...t,
+    rotation: ((t.rotation + 90) % 360) as VideoTransform["rotation"],
+  }
 }

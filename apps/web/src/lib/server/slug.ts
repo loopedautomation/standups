@@ -6,7 +6,11 @@ import { customAlphabet } from "nanoid"
 // see isRecreatableRoomSlug for why recreation doesn't need a signature.
 const digits = customAlphabet("0123456789", 10)
 
-function secret(): string {
+/**
+ * The secret that host keys and booking room codes are derived from. Prefers
+ * MEET_ROOM_SECRET so it can be rotated independently of the LiveKit key.
+ */
+export function roomSecret(): string {
   const s = process.env.MEET_ROOM_SECRET ?? process.env.LIVEKIT_API_SECRET
   if (!s) throw new Error("LIVEKIT_API_SECRET is required")
   return s
@@ -33,7 +37,7 @@ export function isRecreatableRoomSlug(slug: string): boolean {
  * host-start gate survives room garbage collection and recreation.
  */
 export function deriveHostKey(slug: string): string {
-  return createHmac("sha256", `${secret()}:host`).update(slug).digest("hex")
+  return createHmac("sha256", `${roomSecret()}:host`).update(slug).digest("hex")
 }
 
 export function isValidRoomSlug(slug: string): boolean {

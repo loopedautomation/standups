@@ -17,7 +17,6 @@ import {
   videoTransformCss,
 } from "@meet/shared"
 import { useStore } from "@nanostores/react"
-import { $mirrorSelf } from "@/stores/preferences"
 import { ConnectionQuality, Track } from "livekit-client"
 import { Hand, MicOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -25,6 +24,7 @@ import { AgentBadge, useAgentState } from "@/components/room/AgentBadge"
 import { AgentTileControls } from "@/components/room/AgentControls"
 import { useAgentPermissions } from "@/hooks/useRoomSettings"
 import { useSendAgentControl } from "@/hooks/useSendAgentControl"
+import { $mirrorSelf } from "@/stores/preferences"
 
 type ParticipantTileProps = {
   trackRef: TrackReferenceOrPlaceholder
