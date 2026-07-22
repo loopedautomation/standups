@@ -22,6 +22,8 @@ import {
   chatMessageSchema,
   DataTopic,
   type ParticipantMeta,
+  parseParticipantMeta,
+  TRANSCRIPTION_TOPIC,
 } from "@meet/shared"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
@@ -36,6 +38,7 @@ import {
   formatSharedDoc,
   formatTranscript,
   postDebugEvent,
+  pushBounded,
   saveSharedDoc,
   withMeetingContext,
 } from "./meeting-context.js"
@@ -318,11 +321,26 @@ export default defineAgent({
     // Chat messages the brain hasn't seen yet; drained into its next turn so
     // pipeline agents follow the room's text chat, not just @mentions.
     const chatSince: string[] = []
+    // What the room said and did since the brain last ran — spoken turns,
+    // chat, roster changes. Fed by the realtime branch below, so a brain
+    // fronted by a speech-to-speech model stays part of the conversation
+    // itself rather than seeing only what the voice model forwards. (The
+    // pipeline path leaves it empty: its brain hears every turn directly,
+    // and the room transcriber's copy would duplicate them.)
+    const heardSince: string[] = []
     const brain = withMeetingContext(rawBrain, meetingContext, () => {
+      const parts: string[] = []
+      const heard = heardSince.splice(0)
+      if (heard.length) {
+        parts.push(
+          `[Heard in the meeting since your last turn:]\n${heard.join("\n")}`,
+        )
+      }
       const lines = chatSince.splice(0)
-      return lines.length
-        ? `[Meeting chat since your last turn:]\n${lines.join("\n")}`
-        : ""
+      if (lines.length) {
+        parts.push(`[Meeting chat since your last turn:]\n${lines.join("\n")}`)
+      }
+      return parts.join("\n\n")
     })
 
     postDebugEvent(
@@ -338,10 +356,64 @@ export default defineAgent({
     // Realtime agents: a speech-to-speech model is the interaction layer and
     // the brain handles tool work — no STT/TTS pipeline at all.
     if (entry.realtime) {
+      // The brain's ears: every finalized utterance in the room (the room
+      // transcriber's segments) lands in the heard buffer, so each brain
+      // turn carries the conversation itself, not just the voice model's
+      // summary of it.
+      ctx.room.registerTextStreamHandler(
+        TRANSCRIPTION_TOPIC,
+        (reader, info) => {
+          void (async () => {
+            try {
+              if (info.identity === `agent-${entry.id}`) return
+              const attrs = reader.info.attributes
+              if (attrs?.["lk.transcription_final"] !== "true") return
+              const text = (await reader.readAll()).trim()
+              if (!text) return
+              const speaker = [...ctx.room.remoteParticipants.values()].find(
+                (p) => p.identity === info.identity,
+              )
+              pushBounded(
+                heardSince,
+                `${speaker?.name || info.identity}: ${text}`,
+              )
+            } catch {
+              // stream aborted mid-read; nothing to record
+            }
+          })()
+        },
+      )
+      const noteRoster =
+        (verb: string) =>
+        (p: { identity: string; name?: string; metadata?: string }) => {
+          const meta = parseParticipantMeta(p.metadata)
+          if (meta?.kind === "service" || meta?.kind === "waiting") return
+          pushBounded(
+            heardSince,
+            `[${p.name || p.identity} ${verb} the meeting]`,
+          )
+        }
+      ctx.room.on("participantConnected", noteRoster("joined"))
+      ctx.room.on("participantDisconnected", noteRoster("left"))
       // Chat handling lives with the realtime session: every room chat
       // message is surfaced to the model as context, and it posts replies
-      // itself via the send_chat_message tool (see realtime-agent.ts).
+      // itself via the send_chat_message tool (see realtime-agent.ts). The
+      // heard buffer gets a copy too, so the brain follows the chat as well.
       ctx.room.on("dataReceived", (payload: Uint8Array, _p, _k, topic) => {
+        if (topic === DataTopic.Chat) {
+          try {
+            const message = chatMessageSchema.parse(
+              JSON.parse(new TextDecoder().decode(payload)),
+            )
+            if (!message.from.startsWith("agent-")) {
+              pushBounded(
+                heardSince,
+                `${message.fromName} (in chat): ${message.text}`,
+              )
+            }
+          } catch {}
+          return
+        }
         if (topic !== DataTopic.AgentControl) return
         try {
           const control = agentControlSchema.parse(
@@ -388,6 +460,8 @@ export default defineAgent({
         readDoc: async () => (await fetchSharedDoc(roomName)).text,
         writeDoc: publishDoc,
         context: meetingContext,
+        onSpoke: (text) =>
+          pushBounded(heardSince, `${entry.name} (you, aloud): ${text}`),
       })
       return
     }

@@ -77,6 +77,15 @@ export class LoopedTtyClient {
    * frame) and yield frames until the run finishes.
    * Turns that arrive while one is in flight queue behind it instead of
    * failing — a mid-turn utterance waits its turn rather than being dropped.
+   *
+   * A turn that dies before yielding a single frame is retried once on a
+   * fresh connection — but only when the input plausibly never reached a
+   * run: the connect itself failed, or the send went into a socket reused
+   * from an earlier turn (the dominant failure: the agent restarted or the
+   * connection idled out between turns, and the client hasn't noticed).
+   * A freshly connected socket that dies after send is NOT retried — the
+   * run may have started server-side, and replaying the input could execute
+   * its actions twice.
    */
   async *runTurn(
     input: string,
@@ -90,59 +99,81 @@ export class LoopedTtyClient {
     await previous
     try {
       this.#aborted = false
-      const ws = await this.#connect()
-      const queue: TtyServerFrame[] = []
-      let notify: (() => void) | null = null
-      let closed: Error | null = null
-
-      const onMessage = (data: WebSocket.RawData) => {
+      for (let attempt = 0; ; attempt++) {
+        let yielded = false
+        const reusedSocket = this.#ws?.readyState === WebSocket.OPEN
+        let connected = false
         try {
-          queue.push(JSON.parse(String(data)) as TtyServerFrame)
-        } catch {
-          queue.push({ type: "error", error: "malformed frame from agent" })
-        }
-        notify?.()
-      }
-      const onClose = () => {
-        closed = new Error(
-          this.#aborted ? "cancelled" : "TTY connection closed",
-        )
-        notify?.()
-      }
-      ws.on("message", onMessage)
-      ws.once("close", onClose)
-      ws.once("error", onClose)
+          const ws = await this.#connect()
+          connected = true
+          const queue: TtyServerFrame[] = []
+          let notify: (() => void) | null = null
+          let closed: Error | null = null
 
-      const deadline = Date.now() + this.#opts.turnTimeoutMs
-      try {
-        ws.send(
-          JSON.stringify({
-            type: "input",
-            text: input,
-            ...(images?.length ? { images } : {}),
-          }),
-        )
-        while (true) {
-          while (queue.length === 0) {
-            if (closed) throw closed
-            if (Date.now() > deadline) throw new Error("TTY turn timeout")
-            await new Promise<void>((resolve) => {
-              notify = resolve
-              setTimeout(resolve, 250)
-            })
-            notify = null
+          const onMessage = (data: WebSocket.RawData) => {
+            try {
+              queue.push(JSON.parse(String(data)) as TtyServerFrame)
+            } catch {
+              queue.push({ type: "error", error: "malformed frame from agent" })
+            }
+            notify?.()
           }
-          // biome-ignore lint/style/noNonNullAssertion: length checked above
-          const frame = queue.shift()!
-          // The server re-announces hello on connect; skip it mid-turn.
-          if (frame.type === "hello") continue
-          yield frame
-          if (frame.type === "result" || frame.type === "error") return
+          const onClose = () => {
+            closed = new Error(
+              this.#aborted ? "cancelled" : "TTY connection closed",
+            )
+            notify?.()
+          }
+          ws.on("message", onMessage)
+          ws.once("close", onClose)
+          ws.once("error", onClose)
+
+          const deadline = Date.now() + this.#opts.turnTimeoutMs
+          try {
+            ws.send(
+              JSON.stringify({
+                type: "input",
+                text: input,
+                ...(images?.length ? { images } : {}),
+              }),
+            )
+            while (true) {
+              while (queue.length === 0) {
+                if (closed) throw closed
+                if (Date.now() > deadline) throw new Error("TTY turn timeout")
+                await new Promise<void>((resolve) => {
+                  notify = resolve
+                  setTimeout(resolve, 250)
+                })
+                notify = null
+              }
+              // biome-ignore lint/style/noNonNullAssertion: length checked above
+              const frame = queue.shift()!
+              // The server re-announces hello on connect; skip it mid-turn.
+              if (frame.type === "hello") continue
+              yielded = true
+              yield frame
+              if (frame.type === "result" || frame.type === "error") return
+            }
+          } finally {
+            ws.off("message", onMessage)
+            ws.off("close", onClose)
+            ws.off("error", onClose)
+          }
+        } catch (err) {
+          // Any connect failure is retriable (no run could have started);
+          // a post-connect death only when the socket predated this turn.
+          const retriable =
+            attempt === 0 &&
+            !yielded &&
+            !this.#aborted &&
+            (!connected ||
+              (reusedSocket &&
+                /TTY connection closed/.test((err as Error).message)))
+          if (!retriable) throw err
+          this.#ws?.close()
+          this.#ws = null
         }
-      } finally {
-        ws.off("message", onMessage)
-        ws.off("close", onClose)
-        ws.off("error", onClose)
       }
     } finally {
       release()

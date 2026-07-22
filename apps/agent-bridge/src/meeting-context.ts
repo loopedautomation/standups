@@ -142,6 +142,24 @@ export function formatTranscript(
 }
 
 /**
+ * Append a line to a bounded context buffer, dropping the oldest lines once
+ * the buffer exceeds its character budget. Keeps at least the newest line so
+ * a single oversized entry can't empty the buffer.
+ */
+export function pushBounded(
+  lines: string[],
+  line: string,
+  maxChars = 4000,
+): void {
+  lines.push(line)
+  let total = lines.reduce((sum, l) => sum + l.length + 1, 0)
+  while (total > maxChars && lines.length > 1) {
+    total -= (lines[0]?.length ?? 0) + 1
+    lines.shift()
+  }
+}
+
+/**
  * Injects meeting context (roster, prior transcript) into the brain's first
  * turn, whichever path triggers it — a voice turn, a chat mention, or a
  * realtime model's do_task delegation. Brains are stateful conversations,

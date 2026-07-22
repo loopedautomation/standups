@@ -19,8 +19,8 @@ import {
   READ_DOC_TOOL,
   type RealtimeSessionOptions,
   toolDeclarations,
+  UPDATE_DOC_TOOL,
   type VoiceSession,
-  WRITE_DOC_TOOL,
 } from "./realtime-session.js"
 
 export const GEMINI_INPUT_SAMPLE_RATE = 16_000
@@ -47,6 +47,7 @@ type ServerMessage = {
     modelTurn?: {
       parts?: { inlineData?: { mimeType?: string; data?: string } }[]
     }
+    outputTranscription?: { text?: string }
   }
   toolCall?: { functionCalls?: FunctionCall[] }
   goAway?: { timeLeft?: string }
@@ -74,6 +75,8 @@ export class GeminiLiveSession implements VoiceSession {
   #responding = false
   /** Set by cancelResponse: drop audio until the model's turn completes. */
   #suppressTurn = false
+  /** The current turn's spoken transcript, flushed on turnComplete. */
+  #spokenBuf = ""
 
   constructor(opts: RealtimeSessionOptions) {
     this.#opts = opts
@@ -118,6 +121,9 @@ export class GeminiLiveSession implements VoiceSession {
             },
           },
           systemInstruction: { parts: [{ text: this.#opts.instructions }] },
+          // Transcribe the model's own speech so the brain's meeting record
+          // includes the agent's side of the conversation.
+          outputAudioTranscription: {},
           tools: [{ functionDeclarations: toolDeclarations(this.#opts) }],
         },
       })
@@ -168,9 +174,15 @@ export class GeminiLiveSession implements VoiceSession {
         }
         this.#opts.onAudio(fromBase64(data))
       }
+      if (content.outputTranscription?.text) {
+        this.#spokenBuf += content.outputTranscription.text
+      }
       if (content.turnComplete) {
         this.#responding = false
         this.#suppressTurn = false
+        const spoken = this.#spokenBuf.trim()
+        this.#spokenBuf = ""
+        if (spoken) this.#opts.onAgentSpoke?.(spoken)
         this.#opts.onIdle?.()
       }
       return
@@ -223,13 +235,14 @@ export class GeminiLiveSession implements VoiceSession {
             : "The shared document is empty."
         })
         break
-      case WRITE_DOC_TOOL:
+      case UPDATE_DOC_TOOL:
         void this.#docTool(call, async () => {
-          const text = call.args?.text
-          if (typeof text !== "string") return "No document text was provided."
+          const instruction = call.args?.instruction
+          if (typeof instruction !== "string" || !instruction.trim())
+            return "No update instruction was provided."
           return (
-            (await this.#opts.writeDoc?.(text)) ??
-            "You couldn't write the document."
+            (await this.#opts.updateDoc?.(instruction)) ??
+            "You couldn't update the document."
           )
         })
         break

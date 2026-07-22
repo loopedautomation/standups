@@ -177,6 +177,40 @@ describe("LoopedTtyClient", () => {
     client.close()
   })
 
+  it("retries once when a reused socket dies before any frame", async () => {
+    let dropNext = false
+    server.removeAllListeners("connection")
+    server.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const frame = JSON.parse(String(data)) as { text: string }
+        if (dropNext) {
+          dropNext = false
+          socket.close()
+          return
+        }
+        for (const f of frames(`you said: ${frame.text}`)) {
+          socket.send(JSON.stringify(f))
+        }
+      })
+    })
+    const client = new LoopedTtyClient({
+      url: `ws://127.0.0.1:${port}/tty`,
+      token: "secret",
+      conversationId: "room-scout",
+    })
+    // First turn establishes the connection the second will reuse.
+    for await (const _ of client.runTurn("one")) {
+      // drain
+    }
+    // The server drops the reused socket on the next input — the turn
+    // reconnects fresh and succeeds instead of surfacing the dead socket.
+    dropNext = true
+    const types: string[] = []
+    for await (const frame of client.runTurn("two")) types.push(frame.type)
+    expect(types.at(-1)).toBe("result")
+    client.close()
+  })
+
   it("errors when the connection closes mid-turn", async () => {
     const client = new LoopedTtyClient({
       url: `ws://127.0.0.1:${port}/tty`,

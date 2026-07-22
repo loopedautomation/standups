@@ -21,9 +21,13 @@ const TASK_ACK_MS = 8_000
 /** The tool the realtime model calls to post into the meeting chat. */
 export const CHAT_TOOL = "send_chat_message"
 
-/** The tools the realtime model calls to read and write the shared document. */
+/**
+ * The tools the realtime model calls to read and update the shared document.
+ * Updating takes an *instruction*, not document text: the brain composes the
+ * new document, so its judgment and audit trail cover doc writes too.
+ */
 export const READ_DOC_TOOL = "read_shared_doc"
-export const WRITE_DOC_TOOL = "write_shared_doc"
+export const UPDATE_DOC_TOOL = "update_shared_doc"
 
 /** The tool the realtime model calls to look at the shared screen. */
 export const LOOK_TOOL = "look_at_screen"
@@ -68,12 +72,12 @@ export type RealtimeSessionOptions = {
   /** Post a message into the meeting chat on the agent's behalf. */
   sendChat?: (text: string) => void
   /**
-   * The meeting's shared markdown document. Reading and writing are separate
-   * tools rather than one: writing replaces the whole document, so the model
-   * has to have read it first to avoid deleting what it didn't know about.
+   * The meeting's shared markdown document. Reading returns the text;
+   * updating hands an *instruction* to the brain, which composes the new
+   * document itself — the voice model never authors persistent content.
    */
   readDoc?: () => Promise<string>
-  writeDoc?: (text: string) => Promise<string>
+  updateDoc?: (instruction: string) => Promise<string>
   /**
    * Look at the screen someone is sharing and describe it. The realtime
    * model has no eyes of its own here — this captures a frame and puts it
@@ -92,6 +96,12 @@ export type RealtimeSessionOptions = {
   onSpeaking?: () => void
   onIdle?: () => void
   onError?: (message: string) => void
+  /**
+   * Transcript of what the model just said aloud, one response at a time —
+   * relayed to the brain so its record of the meeting includes the agent's
+   * own side of the conversation.
+   */
+  onAgentSpoke?: (text: string) => void
   /**
    * Deterministic turn gate. When set, the model NEVER auto-responds: each
    * committed turn is transcribed, and audio is only produced when the turn
@@ -137,21 +147,23 @@ export type ToolDeclaration = {
  * speech-to-speech model fronts the brain.
  */
 export function toolDeclarations(
-  opts: Pick<RealtimeSessionOptions, "readDoc" | "writeDoc" | "lookAtScreen">,
+  opts: Pick<RealtimeSessionOptions, "readDoc" | "updateDoc" | "lookAtScreen">,
 ): ToolDeclaration[] {
   return [
     {
       name: DELEGATE_TOOL,
       description:
-        "Go do focused work yourself: this runs your own tools, memory and " +
-        "permissions — it is you working, not another agent, so never describe it " +
-        "as asking or waiting on someone else. It takes seconds to minutes, so use " +
-        "it only when you actually need it: taking an action, looking something up, " +
-        "or answering about systems, data or private state. Answer general " +
-        "questions and conversation directly. When you start a task, say a few " +
-        "words first so the person knows you're on it. If it takes long, it " +
-        "continues in the background and you'll receive a [task finished] note — " +
-        "until then, keep conversing normally and never invent a result.",
+        "Think and act: this is where your knowledge, memory, tools and " +
+        "permissions live — it is you working, not another agent, so never " +
+        "describe it as asking or waiting on someone else. Every answer of " +
+        "substance comes from here: use it for anything factual, anything " +
+        "about systems, data, people, documents or past conversations, any " +
+        "opinion on the work, and any action — even when you feel sure of " +
+        "the answer yourself. It takes seconds to minutes; say a few words " +
+        "first so the person knows you're on it. If it takes long, it " +
+        "continues in the background and you'll receive a [task finished] " +
+        "note — until then, keep conversing normally and never invent a " +
+        "result.",
       parameters: {
         type: "object",
         properties: {
@@ -185,36 +197,38 @@ export function toolDeclarations(
         required: ["text"],
       },
     },
-    ...(opts.readDoc && opts.writeDoc
+    ...(opts.readDoc && opts.updateDoc
       ? [
           {
             name: READ_DOC_TOOL,
             description:
               "Read the meeting's shared markdown document — the notes and " +
-              "plan everyone in the room can see. Read it before writing, " +
-              "and whenever someone refers to 'the doc', 'the notes' or " +
-              "'the plan'.",
+              "plan everyone in the room can see. Read it whenever someone " +
+              "refers to 'the doc', 'the notes' or 'the plan'.",
             parameters: { type: "object", properties: {} },
           },
           {
-            name: WRITE_DOC_TOOL,
+            name: UPDATE_DOC_TOOL,
             description:
-              "Replace the meeting's shared markdown document. This " +
-              "overwrites it entirely, so read it first and send back the " +
-              "full document with your changes folded in — never just the " +
-              "part you added, or you will delete everyone else's work. " +
-              "Use it when asked to write up, capture, or restructure what " +
-              "was discussed. Say what you changed in a few words out loud; " +
-              "don't read the document back.",
+              "Update the meeting's shared markdown document. Describe the " +
+              "change to make in full — what to add, capture, or " +
+              "restructure, with the specifics from the conversation folded " +
+              "in — and the document is rewritten for you with everyone " +
+              "else's work preserved. Use it when asked to write something " +
+              "up, capture a decision, or draft a plan. It takes a moment, " +
+              "so say a few words first; afterwards say what changed in a " +
+              "few words — don't read the document back.",
             parameters: {
               type: "object",
               properties: {
-                text: {
+                instruction: {
                   type: "string",
-                  description: "The complete new document, in markdown.",
+                  description:
+                    "The change to make, in full sentences and " +
+                    "self-contained, including the details it should capture.",
                 },
               },
-              required: ["text"],
+              required: ["instruction"],
             },
           },
         ]
@@ -409,6 +423,12 @@ export class RealtimeSession implements VoiceSession {
           this.#opts.gate?.onHandRaise()
         }
         break
+      case "response.output_audio_transcript.done": {
+        // What the agent just said aloud, for the brain's meeting record.
+        const spoken = String(event.transcript ?? "").trim()
+        if (spoken) this.#opts.onAgentSpoke?.(spoken)
+        break
+      }
       case "response.function_call_arguments.done":
         if (event.name === CHAT_TOOL) {
           this.#sendChatMessage({
@@ -419,9 +439,9 @@ export class RealtimeSession implements VoiceSession {
           this.#cancelTask(String(event.call_id))
         } else if (event.name === READ_DOC_TOOL) {
           void this.#docTool(String(event.call_id), () => this.#readDocText())
-        } else if (event.name === WRITE_DOC_TOOL) {
+        } else if (event.name === UPDATE_DOC_TOOL) {
           void this.#docTool(String(event.call_id), () =>
-            this.#writeDocText(String(event.arguments)),
+            this.#updateDocText(String(event.arguments)),
           )
         } else if (event.name === LOOK_TOOL) {
           void this.#lookAtScreen(String(event.call_id))
@@ -532,11 +552,15 @@ export class RealtimeSession implements VoiceSession {
       : "The shared document is empty."
   }
 
-  async #writeDocText(rawArguments: string): Promise<string> {
-    const { text } = JSON.parse(rawArguments) as { text?: string }
-    if (typeof text !== "string") return "No document text was provided."
+  async #updateDocText(rawArguments: string): Promise<string> {
+    const { instruction } = JSON.parse(rawArguments) as {
+      instruction?: string
+    }
+    if (typeof instruction !== "string" || !instruction.trim())
+      return "No update instruction was provided."
     return (
-      (await this.#opts.writeDoc?.(text)) ?? "You couldn't write the document."
+      (await this.#opts.updateDoc?.(instruction)) ??
+      "You couldn't update the document."
     )
   }
 
