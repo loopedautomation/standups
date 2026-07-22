@@ -296,7 +296,7 @@ function CameraSetting() {
             setPendingT(undefined)
           }}
         >
-          Save camera
+          Apply changes
         </button>
       )}
     </div>
