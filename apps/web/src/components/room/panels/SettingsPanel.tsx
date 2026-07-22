@@ -63,12 +63,7 @@ export function SettingsPanel({ slug }: { slug: string }) {
           label="Microphone"
           persistKey="audioDeviceId"
         />
-        <CameraSettingsPreview />
-        <DeviceSelect
-          kind="videoinput"
-          label="Camera"
-          persistKey="videoDeviceId"
-        />
+        <CameraSetting />
         <DeviceSelect
           kind="audiooutput"
           label="Speaker"
@@ -217,10 +212,57 @@ function MicLevel() {
   return <MicMeter level={level} />
 }
 
-/** Mirrored preview of the selected camera, above its select. */
-function CameraSettingsPreview() {
+/**
+ * Camera picker with a true preview: the select and the tile show a pending
+ * choice without touching the published camera — what the meeting sees only
+ * changes on Save. (The mic select stays immediate: a mic switch is loud in
+ * no one's face, and the meter previews it anyway.)
+ */
+function CameraSetting() {
+  const { devices, activeDeviceId, setActiveMediaDevice } =
+    useMediaDeviceSelect({ kind: "videoinput" })
+  // undefined = following the live camera; a string = pending choice.
+  const [pending, setPending] = useState<string | undefined>(undefined)
+  const shown = pending ?? activeDeviceId
+  const dirty = pending !== undefined && pending !== activeDeviceId
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <CameraSettingsPreview deviceId={shown} />
+      <label className="flex min-w-0 flex-col gap-1">
+        <span className="text-base-content/70 text-sm">Camera</span>
+        <Select
+          value={shown}
+          onChange={(e) => setPending(e.target.value)}
+          options={devices.map((d) => ({
+            value: d.deviceId,
+            label: d.label || "Camera",
+          }))}
+        />
+      </label>
+      {dirty && (
+        <button
+          type="button"
+          className="btn btn-primary btn-sm w-full"
+          onClick={() => {
+            void setActiveMediaDevice(pending)
+            try {
+              localStorage.setItem("videoDeviceId", pending)
+            } catch {}
+            setPending(undefined)
+          }}
+        >
+          Save camera
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Mirrored preview of one camera device. */
+function CameraSettingsPreview({ deviceId }: { deviceId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { activeDeviceId: camId } = useMediaDeviceSelect({ kind: "videoinput" })
+  const camId = deviceId
   const [error, setError] = useState(false)
 
   useEffect(() => {
