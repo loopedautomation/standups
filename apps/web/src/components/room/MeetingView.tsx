@@ -53,13 +53,20 @@ export function MeetingView({
   const screenTracks = useTracks([Track.Source.ScreenShare], {
     onlySubscribed: true,
   })
+  // A stopped share can linger as a muted (or track-less) publication instead
+  // of being fully unpublished — `onlySubscribed` won't drop it, so the stage
+  // stays in share view showing a frozen last frame. Only tracks that are
+  // actually live may own the stage.
+  const liveScreenTracks = screenTracks.filter(
+    (t) => t.publication?.track && !t.publication.isMuted,
+  )
   // A single share owns the stage: the newest sharer takes over and stops the
   // previous one. While both are briefly live, prefer the one that most
   // recently announced a takeover; fall back to LiveKit's order otherwise.
   const latestSharer = useScreenShareTakeover()
   const focused =
-    screenTracks.find((t) => t.participant.identity === latestSharer) ??
-    screenTracks[0]
+    liveScreenTracks.find((t) => t.participant.identity === latestSharer) ??
+    liveScreenTracks[0]
 
   const localTrack = cameraTracks.find((t) => t.participant.isLocal)
   // Service participants (the transcriber) and knockers still in the waiting
