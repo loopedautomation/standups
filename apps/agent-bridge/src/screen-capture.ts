@@ -60,21 +60,52 @@ export async function attachScreenFrame(
   }
 }
 
+/** What ScreenCapture reports about itself — wired by the worker into the
+ * room's debug feed, because every prior failure in this path was silent. */
+export type ScreenCaptureLog = (
+  level: "info" | "error",
+  message: string,
+) => void
+
+/** A frame source for one track — injectable so tests can drive frames. */
+type FrameStream = AsyncIterable<{ frame: VideoFrame }> & {
+  cancel: () => Promise<unknown>
+}
+
+/** A stream that ends immediately this many times in a row is dead. */
+const MAX_FRAMELESS_RESTARTS = 3
+const RESTART_DELAY_MS = 1000
+
 /**
  * Watches the room for screenshare video tracks and keeps the most recent
  * frame, encoded lazily to JPEG when a turn asks for it.
  */
 export class ScreenCapture {
   #room: Room
-  #latest: { frame: VideoFrame; sharerName: string } | null = null
+  #latest: { frame: VideoFrame; sharerName: string; sid: string } | null = null
   #encoded: { at: number; result: CapturedFrame } | null = null
   #streams = new Map<string, { stop: () => void }>()
   readonly #enabled: boolean
+  readonly #log: ScreenCaptureLog
+  readonly #makeStream: (track: RemoteTrack) => FrameStream
 
-  constructor(room: Room, enabled = screenVisionEnabled()) {
+  constructor(
+    room: Room,
+    enabled = screenVisionEnabled(),
+    opts: {
+      log?: ScreenCaptureLog
+      makeStream?: (track: RemoteTrack) => FrameStream
+    } = {},
+  ) {
     this.#room = room
     this.#enabled = enabled
-    if (!enabled) return
+    this.#log = opts.log ?? (() => undefined)
+    this.#makeStream =
+      opts.makeStream ?? ((track) => new VideoStream(track) as FrameStream)
+    if (!enabled) {
+      this.#log("info", "screen vision is off (AGENT_SCREEN_VISION)")
+      return
+    }
     room.on(
       "trackSubscribed",
       (track: RemoteTrack, pub: RemoteTrackPublication, participant) => {
@@ -87,14 +118,37 @@ export class ScreenCapture {
       },
     )
     room.on("trackUnsubscribed", (track: RemoteTrack) => {
-      const watcher = this.#streams.get(track.sid ?? "")
+      const sid = track.sid ?? ""
+      const watcher = this.#streams.get(sid)
       if (watcher) {
         watcher.stop()
-        this.#streams.delete(track.sid ?? "")
-        this.#latest = null
-        this.#encoded = null
+        this.#streams.delete(sid)
+        // Only drop the kept frame if it came from this track — during a
+        // share takeover the old share's unsubscribe must not blank out the
+        // frame the new share already latched.
+        if (this.#latest?.sid === sid) {
+          this.#latest = null
+          this.#encoded = null
+        }
       }
     })
+    // Tracks subscribed before this instance existed never fire the event.
+    // Today construction races nothing (no awaits between connect and here),
+    // but that's an accident of the caller — sweep so it stays true.
+    for (const participant of room.remoteParticipants.values()) {
+      for (const pub of participant.trackPublications.values()) {
+        const track = pub.track
+        if (
+          track &&
+          pub.subscribed &&
+          track.kind === TrackKind.KIND_VIDEO &&
+          pub.source === TrackSource.SOURCE_SCREENSHARE &&
+          !this.#streams.has(track.sid ?? "")
+        ) {
+          this.#watch(track, participant.name || participant.identity)
+        }
+      }
+    }
   }
 
   /** True when a screenshare is running and agents are allowed to see it. */
@@ -113,19 +167,62 @@ export class ScreenCapture {
   }
 
   #watch(track: RemoteTrack, sharerName: string) {
-    const stream = new VideoStream(track)
+    const sid = track.sid ?? ""
     let stopped = false
+    let stream: FrameStream | null = null
+    this.#log("info", `watching ${sharerName}'s screenshare (${sid})`)
     const run = async () => {
-      for await (const event of stream) {
-        if (stopped) break
-        this.#latest = { frame: event.frame, sharerName }
+      // The stream dying does not mean the share ended — that's what
+      // trackUnsubscribed says. Reopen it until the track actually goes
+      // away, giving up only when restarts stop producing frames.
+      let framelessRestarts = 0
+      while (!stopped) {
+        const current = this.#makeStream(track)
+        stream = current
+        let sawFrame = false
+        try {
+          for await (const event of current) {
+            if (stopped) break
+            if (!sawFrame) {
+              sawFrame = true
+              framelessRestarts = 0
+              this.#log(
+                "info",
+                `receiving frames from ${sharerName}'s screenshare ` +
+                  `(${event.frame.width}x${event.frame.height})`,
+              )
+            }
+            this.#latest = { frame: event.frame, sharerName, sid }
+          }
+        } catch (err) {
+          this.#log(
+            "error",
+            `frame stream from ${sharerName} failed: ${(err as Error).message}`,
+          )
+        }
+        if (stopped) return
+        if (!sawFrame && ++framelessRestarts >= MAX_FRAMELESS_RESTARTS) {
+          this.#log(
+            "error",
+            `frame stream from ${sharerName} produced no frames after ` +
+              `${framelessRestarts} attempts; giving up on this track`,
+          )
+          this.#streams.delete(sid)
+          return
+        }
+        this.#log(
+          "error",
+          `frame stream from ${sharerName} ended while the track is still ` +
+            `subscribed; reopening in ${RESTART_DELAY_MS}ms`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, RESTART_DELAY_MS))
       }
     }
     run().catch(() => undefined)
-    this.#streams.set(track.sid ?? "", {
+    this.#streams.set(sid, {
       stop: () => {
         stopped = true
-        stream.cancel().catch(() => undefined)
+        stream?.cancel().catch(() => undefined)
       },
     })
   }
@@ -138,20 +235,35 @@ export class ScreenCapture {
     if (this.#encoded && Date.now() - this.#encoded.at < ENCODE_INTERVAL_MS) {
       return this.#encoded.result
     }
-    const rgba = latest.frame.convert(VideoBufferType.RGBA)
-    const width = rgba.width
-    const height = rgba.height
-    let pipeline = sharp(Buffer.from(rgba.data.buffer, 0, width * height * 4), {
-      raw: { width, height, channels: 4 },
-    })
-    if (width > MAX_WIDTH) pipeline = pipeline.resize({ width: MAX_WIDTH })
-    const jpeg = await pipeline.jpeg({ quality: JPEG_QUALITY }).toBuffer()
-    const result: CapturedFrame = {
-      mediaType: "image/jpeg",
-      data: jpeg.toString("base64"),
-      sharerName: latest.sharerName,
+    try {
+      const rgba =
+        latest.frame.type === VideoBufferType.RGBA
+          ? latest.frame
+          : latest.frame.convert(VideoBufferType.RGBA)
+      const width = rgba.width
+      const height = rgba.height
+      let pipeline = sharp(
+        Buffer.from(rgba.data.buffer, rgba.data.byteOffset, width * height * 4),
+        { raw: { width, height, channels: 4 } },
+      )
+      if (width > MAX_WIDTH) pipeline = pipeline.resize({ width: MAX_WIDTH })
+      const jpeg = await pipeline.jpeg({ quality: JPEG_QUALITY }).toBuffer()
+      const result: CapturedFrame = {
+        mediaType: "image/jpeg",
+        data: jpeg.toString("base64"),
+        sharerName: latest.sharerName,
+      }
+      this.#encoded = { at: Date.now(), result }
+      return result
+    } catch (err) {
+      // attachScreenFrame degrades to a text-only turn on null — but the
+      // failure must land in the logs, or "the agent can't see" is
+      // undiagnosable from the outside (issue #110).
+      this.#log(
+        "error",
+        `encoding ${latest.sharerName}'s frame failed: ${(err as Error).message}`,
+      )
+      return null
     }
-    this.#encoded = { at: Date.now(), result }
-    return result
   }
 }

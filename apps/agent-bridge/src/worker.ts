@@ -306,7 +306,21 @@ export default defineAgent({
         .catch(() => undefined)
     }
 
-    const screen = new ScreenCapture(ctx.room)
+    // Vision failures used to be invisible (issue #110: "the agent acts as
+    // if nothing is shared", with nothing in any log to say why). Every
+    // stage change and failure now lands in the worker log and the room's
+    // debug feed, where a deployment can actually see it.
+    const screen = new ScreenCapture(ctx.room, undefined, {
+      log: (level, message) => {
+        console.log(`[${entry.id}] screen: ${message}`)
+        postDebugEvent(
+          roomName,
+          `agent:${entry.id}`,
+          level,
+          `screen: ${message}`,
+        )
+      },
+    })
 
     // The agent's visible hand. Presence frames are lossy fire-and-forget,
     // and animations queue so overlapping tool calls play out in order
