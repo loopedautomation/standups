@@ -123,7 +123,7 @@ export function Select({
                 {o.badges?.map((badge) => (
                   <span
                     key={badge.text}
-                    className={`badge badge-ghost badge-xs shrink-0 text-[9px] ${badge.className ?? ""}`}
+                    className={`badge badge-xs shrink-0 text-[9px] ${badge.className ?? "badge-ghost"}`}
                   >
                     {badge.text}
                   </span>

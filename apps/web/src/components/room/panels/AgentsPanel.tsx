@@ -535,14 +535,22 @@ function forgetAgent(url: string): RecentAgent[] {
 }
 
 /** The voice list for a chosen mode (URL agents have no registry defaults). */
-/** Quiet trait badges for a voice; undefined when nothing is documented. */
+/** Colored trait badges for a voice; undefined when nothing is documented. */
 function voiceBadges(voice: string) {
   const gemini = GEMINI_VOICE_INFO[voice as keyof typeof GEMINI_VOICE_INFO]
-  if (gemini) return [{ text: gemini.gender }, { text: gemini.tone }] as const
+  if (gemini) {
+    return [
+      {
+        text: gemini.gender,
+        className: gemini.gender === "F" ? "badge-secondary" : "badge-info",
+      },
+      { text: gemini.tone, className: "badge-accent" },
+    ] as const
+  }
   const openai =
     OPENAI_REALTIME_VOICE_INFO[voice as keyof typeof OPENAI_REALTIME_VOICE_INFO]
   // OpenAI documents a character but no gender — badge what's stated.
-  if (openai) return [{ text: openai.tone }] as const
+  if (openai) return [{ text: openai.tone, className: "badge-accent" }] as const
   return undefined
 }
 
