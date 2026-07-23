@@ -37,8 +37,8 @@ function booking(uid: string, triggerEvent = "BOOKING_CREATED") {
   } as Parameters<typeof handleCalcomBooking>[1]
 }
 
-describe("handleCalcomBooking — host key in the booking link", () => {
-  it("writes back a link carrying the room's derived host key in the fragment", async () => {
+describe("handleCalcomBooking — booking links carry no secrets", () => {
+  it("writes back a plain link: the booking goes to every attendee, so a host key here handed host powers to the whole invite list", async () => {
     const uid = "booking-abc"
     const result = await handleCalcomBooking(
       cfg,
@@ -49,25 +49,12 @@ describe("handleCalcomBooking — host key in the booking link", () => {
     if (result.action !== "provisioned") return
 
     const slug = bookingRoomSlug(uid, SECRET)
-    const expectedKey = deriveHostKey(slug)
-    // The link must let a booking attendee start the room — i.e. carry the
-    // host key — otherwise scheduled meetings sit on "hasn't started" forever.
-    expect(result.url).toContain(`#hk=${expectedKey}`)
     expect(result.url).toContain(`/${slug}`)
-  })
-
-  it("puts the key only in the fragment, never in the path/query the server sees", async () => {
-    const result = await handleCalcomBooking(
-      cfg,
-      booking("booking-xyz"),
-      "https://meet.example.com/api/integrations/cal",
-    )
-    if (result.action !== "provisioned") throw new Error("expected provisioned")
     const url = new URL(result.url)
-    // Fragments are never sent to servers or logged in access logs.
-    expect(url.pathname).not.toContain("hk=")
+    expect(url.hash).toBe("")
     expect(url.search).toBe("")
-    expect(url.hash).toMatch(/^#hk=[0-9a-f]{64}$/)
+    // Sanity: the derived key never appears anywhere in the link.
+    expect(result.url).not.toContain(deriveHostKey(slug))
   })
 
   it("derives the same slug (and key) for redelivered bookings — idempotent", async () => {

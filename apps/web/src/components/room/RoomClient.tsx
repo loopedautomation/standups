@@ -53,10 +53,11 @@ export function RoomClient({
   const [awaitingStart, setAwaitingStart] = useState<JoinPreferences | null>(
     null,
   )
-  // Booked (cal.com) links carry the room's host key in the URL fragment —
-  // the only way a scheduled room can be started, since no browser "created"
-  // it. Stash it and scrub the address bar so it isn't shared onward by
-  // copy-pasting the URL from the browser.
+  // Older booked links carried the room's host key in the URL fragment;
+  // current bookings get plain links (hosts claim with the management
+  // password instead), but honor the fragment for links already sitting in
+  // calendars. Stash it and scrub the address bar so it isn't shared onward
+  // by copy-pasting the URL from the browser.
   useEffect(() => {
     try {
       const match = window.location.hash.match(/[#&]hk=([0-9a-f]{64})/)
@@ -182,9 +183,10 @@ export function RoomClient({
   }, [awaitingStart, session, handleJoin])
 
   if (awaitingStart && !session) {
-    // No unauthenticated "start anyway" any more: it let anyone with the
-    // link open (and take over) a meeting before its real host arrived.
-    // Only the browser holding the host key can start the room.
+    // No unauthenticated "start anyway" — it let anyone with the link open
+    // (and take over) a meeting before its real host arrived. Starting takes
+    // the host key (creator's browser) or the management password, exchanged
+    // below for this room's key.
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="animate-pulse font-medium text-lg">
@@ -193,10 +195,10 @@ export function RoomClient({
         <p className="text-base-content/60 text-sm">
           You'll join automatically once the host arrives.
         </p>
-        <p className="text-base-content/50 text-xs">
-          If you're the host, open the meeting from the browser you created it
-          in (or your booking link).
-        </p>
+        <ClaimHost
+          slug={slug}
+          onClaimed={() => void handleJoin(awaitingStart)}
+        />
       </main>
     )
   }
@@ -310,5 +312,89 @@ export function RoomClient({
         )}
       </QueryClientProvider>
     </LiveKitRoom>
+  )
+}
+
+/**
+ * "I'm the host": exchange the deployment's management password for this
+ * room's host key. The password crosses the wire once; the browser keeps
+ * the per-room key every host-gated route understands. This is how booked
+ * meetings (plain links, no creator browser) get their host — and how a
+ * host on a new device, or a colleague covering for them, takes over.
+ */
+function ClaimHost({
+  slug,
+  onClaimed,
+}: {
+  slug: string
+  onClaimed: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="btn btn-outline btn-sm"
+        onClick={() => setOpen(true)}
+      >
+        I'm the host — start the meeting
+      </button>
+    )
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/rooms/${slug}/claim-host`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        hostKey?: string
+        error?: string
+      }
+      if (!res.ok || !data.hostKey) {
+        setError(data.error ?? "could not claim host")
+        return
+      }
+      try {
+        localStorage.setItem(`hostKey:${slug}`, data.hostKey)
+      } catch {}
+      onClaimed()
+    } catch {
+      setError("network error — try again")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex items-center gap-2">
+      <input
+        autoFocus
+        type="password"
+        className="input input-sm"
+        placeholder="Management password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        aria-label="Management password"
+      />
+      <button
+        type="submit"
+        className="btn btn-primary btn-sm"
+        disabled={busy || !password}
+      >
+        {busy && <span className="loading loading-spinner loading-xs" />}
+        Start
+      </button>
+      {error && <span className="text-error text-xs">{error}</span>}
+    </form>
   )
 }

@@ -63,16 +63,27 @@ is safely ignored (`{ "ok": true, "action": "ignored" }`).
 meet calls `PATCH /v2/bookings/{uid}/location` with a `link`-type location.
 cal.com updates the calendar event and sends its own location-change
 notification to attendees, so the meet link appears wherever the meeting
-location does. This works regardless of the event type's default location — you
-don't need to preconfigure a "Cal Video" or custom-link location.
+location does.
+
+**Set the event type's location to "Link meeting"** (any placeholder URL
+works). If the event type defaults to a conferencing app — Teams, Zoom, Cal
+Video — cal.com creates that meeting at booking time and attendees receive
+its link first, followed by a location-*change* to the meet link: a
+confusing double invite. With a plain link location, no third-party meeting
+is ever created and the write-back simply fills in the real link.
 
 ## Notes & troubleshooting
 
-- **Starting the meeting.** The booking link carries the room's host key in
-  its URL fragment (`#hk=…`), so anyone arriving via the booking — organiser
-  or attendee — can start the meeting; the first to do so enters directly and
-  later arrivals knock to be admitted. Someone who only knows the 10-digit
-  room code (without the fragment) cannot start or enter an unstarted room.
+- **Starting the meeting.** Booking links are plain — they carry no secrets,
+  since the location goes to every attendee. Whoever hosts opens the link,
+  and on the "hasn't started yet" screen clicks **"I'm the host — start the
+  meeting"** and enters the deployment's management password
+  (`MEET_MANAGEMENT_PASSWORD`); their browser exchanges it for the room's
+  host key and the meeting starts. Anyone else with the password (a
+  colleague covering) can do the same. Attendees join automatically once
+  it's started; someone who only knows the 10-digit room code cannot start
+  or enter an unstarted room. (Older booking links with an `#hk=` fragment
+  in calendars still work.)
 - **No link on the booking.** Check the web logs for `[calcom]` errors. A
   common cause is a missing/underprivileged `CALCOM_API_KEY`; the room link is
   still valid, it just wasn't pushed back to cal.com.
