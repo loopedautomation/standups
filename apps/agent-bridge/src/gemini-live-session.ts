@@ -29,9 +29,17 @@ import {
 export const GEMINI_INPUT_SAMPLE_RATE = 16_000
 export const GEMINI_OUTPUT_SAMPLE_RATE = 24_000
 
-/** The alias-free preview model the Gemini API serves for Live audio. */
+/**
+ * The alias-free preview model the Gemini API serves for Live audio.
+ *
+ * Pinned to 09-2025: the 12-2025 preview closes the socket with 1007
+ * ("CONTENT_TYPE_AUDIO is not supported for this model configuration") the
+ * moment the model tries to emit ANY function call — the agent announces
+ * "I'll draw that", the session dies mid-turn, and the tool never runs
+ * (verified against both models with our exact tool declarations).
+ */
 export const GEMINI_LIVE_DEFAULT_MODEL =
-  "gemini-2.5-flash-native-audio-preview-12-2025"
+  "gemini-2.5-flash-native-audio-preview-09-2025"
 
 const HOST =
   "wss://generativelanguage.googleapis.com/ws/" +
@@ -50,6 +58,33 @@ const TASK_ACK_MS = 8_000
 const RECONNECT_MAX_ATTEMPTS = 5
 const RECONNECT_BASE_DELAY_MS = 1_000
 const RECONNECT_MAX_DELAY_MS = 15_000
+
+/**
+ * Gemini Live can't produce a text-only response inside an audio session,
+ * so gated deliberation ("do I have something important?") runs as a cheap
+ * out-of-band text call instead — same job as OpenAI's text-modality
+ * deliberate response.
+ */
+// The rolling alias: pinned lite models age out of new keys ("no longer
+// available to new users"), and this call is trivial enough to ride latest.
+const DELIBERATE_MODEL = "gemini-flash-lite-latest"
+
+const DELIBERATE_INSTRUCTIONS =
+  "You are silently listening to a live meeting. Given what was just said, " +
+  "decide: do you have something genuinely important to contribute — a " +
+  "correction, a direct answer to a question aimed at you, or critical " +
+  "information? Reply with exactly PASS if not (this is almost always the " +
+  "answer), or RAISE_HAND if yes. If you instead have a brief useful aside " +
+  "for the meeting's text chat (a link, a pointer), reply with " +
+  "CHAT: <the message>."
+
+/**
+ * Rolling window of conversation the session has been told about, replayed
+ * after a reconnect so the model doesn't restart the meeting from amnesia
+ * (Gemini Live has no session resume; every reconnect is a fresh context).
+ * Also grounds the out-of-band deliberation calls.
+ */
+const CONTEXT_MAX_LINES = 40
 
 type FunctionCall = { id: string; name: string; args?: Record<string, unknown> }
 
@@ -95,6 +130,12 @@ export class GeminiLiveSession implements VoiceSession {
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** True once any session completed setup — reconnects get a resume note. */
   #wasConnected = false
+  /** Why the next reconnect happened, folded into the resume note. */
+  #resumeReason: "drop" | "policy" = "drop"
+  /** Rolling conversation memory; survives reconnects (see CONTEXT_MAX_LINES). */
+  #recent: string[] = []
+  /** One deliberation in flight at a time — turns can outpace the API. */
+  #deliberating = false
 
   /**
    * Manual-turn mode: automatic activity detection disabled, so the model
@@ -241,14 +282,22 @@ export class GeminiLiveSession implements VoiceSession {
       if (this.#wasConnected) {
         // A reconnected session has no conversation history — the setup
         // resends the instructions, but the model must not greet the room
-        // as if it just arrived. Context only; no turnComplete, so the
-        // model doesn't auto-respond to it.
-        this.#sendUserText(
-          "[Your voice connection dropped briefly and is now restored, " +
-            "mid-meeting. Continue naturally from the live audio; do not " +
-            "greet the room again or mention the interruption.]",
-          false,
-        )
+        // as if it just arrived. The rolling context window is replayed so
+        // the conversational thread survives the reset. Context only; no
+        // turnComplete, so the model doesn't auto-respond to it.
+        const note =
+          this.#resumeReason === "policy"
+            ? "[Your speaking policy just changed mid-meeting (a host " +
+              "action), which reset your voice connection. Continue " +
+              "naturally; do not greet the room again or mention any reset.]"
+            : "[Your voice connection dropped briefly and is now restored, " +
+              "mid-meeting. Continue naturally from the live audio; do not " +
+              "greet the room again or mention the interruption.]"
+        const recap = this.#recent.length
+          ? `\n\nWhat happened in the meeting so far (most recent last):\n${this.#recent.join("\n")}`
+          : ""
+        this.#sendUserText(note + recap, false)
+        this.#resumeReason = "drop"
       }
       this.#wasConnected = true
       this.#resolveReady()
@@ -278,7 +327,10 @@ export class GeminiLiveSession implements VoiceSession {
         this.#suppressTurn = false
         const spoken = this.#spokenBuf.trim()
         this.#spokenBuf = ""
-        if (spoken) this.#opts.onAgentSpoke?.(spoken)
+        if (spoken) {
+          this.#remember(`You said aloud: ${spoken}`)
+          this.#opts.onAgentSpoke?.(spoken)
+        }
         this.#opts.onIdle?.()
       }
       return
@@ -445,6 +497,74 @@ export class GeminiLiveSession implements VoiceSession {
     this.#sendUserText(note, !note.startsWith("[task cancelled]"))
   }
 
+  #remember(line: string) {
+    this.#recent.push(line)
+    if (this.#recent.length > CONTEXT_MAX_LINES) this.#recent.shift()
+  }
+
+  /**
+   * Silent gated deliberation for an unaddressed turn: an out-of-band text
+   * call (the live session can't answer in text), grounded in the same
+   * rolling context the reconnect recap uses. Resolves with whether the
+   * agent wants the floor; a CHAT: answer is posted as an aside directly.
+   * Never throws — a failed deliberation is a PASS.
+   */
+  async deliberate(line: string): Promise<"pass" | "raise-hand"> {
+    if (this.#deliberating || this.#closed) return "pass"
+    this.#deliberating = true
+    try {
+      const res = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" +
+          `${DELIBERATE_MODEL}:generateContent?key=${encodeURIComponent(this.#opts.apiKey)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [
+                {
+                  text: `${this.#opts.instructions}\n\n${DELIBERATE_INSTRUCTIONS}`,
+                },
+              ],
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text:
+                      (this.#recent.length
+                        ? `Recent meeting conversation:\n${this.#recent.join("\n")}\n\n`
+                        : "") + `Just now: ${line}`,
+                  },
+                ],
+              },
+            ],
+            // No thinkingConfig: Gemini 3 rejects thinkingBudget, and the
+            // token cap leaves room for whatever thinking the model spends.
+            generationConfig: { temperature: 0, maxOutputTokens: 500 },
+          }),
+        },
+      )
+      if (!res.ok) return "pass"
+      const body = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[]
+      }
+      const text = (body.candidates?.[0]?.content?.parts ?? [])
+        .map((p) => p.text ?? "")
+        .join("")
+        .trim()
+      if (text.includes("RAISE_HAND")) return "raise-hand"
+      const chat = text.match(/^CHAT:\s*(.+)$/s)?.[1]?.trim()
+      if (chat) this.#opts.sendChat?.(chat)
+      return "pass"
+    } catch {
+      return "pass"
+    } finally {
+      this.#deliberating = false
+    }
+  }
+
   #sendUserText(text: string, complete = true) {
     this.#send({
       clientContent: {
@@ -460,6 +580,7 @@ export class GeminiLiveSession implements VoiceSession {
    * in chat or ignore) carry the weight of keeping the model quiet.
    */
   notifyChat(line: string) {
+    this.#remember(line)
     this.#sendUserText(line)
   }
 
@@ -469,6 +590,7 @@ export class GeminiLiveSession implements VoiceSession {
    * tool rather than aloud.
    */
   promptChatReply(line: string) {
+    this.#remember(line)
     this.#sendUserText(
       `${line}\n[You were addressed by name in the meeting's text chat. ` +
         `Reply briefly into the chat using the ${CHAT_TOOL} tool; don't ` +
@@ -487,6 +609,9 @@ export class GeminiLiveSession implements VoiceSession {
     this.#gateOpen = open
     if (!open && !this.#manual) {
       this.#manual = true
+      // The reconnect starts a fresh model context; the resume note replays
+      // the rolling window so the flip doesn't lobotomize the agent.
+      this.#resumeReason = "policy"
       if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.close()
     }
   }
@@ -519,6 +644,7 @@ export class GeminiLiveSession implements VoiceSession {
    * this can never trigger a response.
    */
   notifyHeard(line: string) {
+    this.#remember(line)
     this.#sendUserText(line, false)
   }
 

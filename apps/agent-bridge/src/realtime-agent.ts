@@ -675,6 +675,12 @@ export async function runRealtimeAgent(opts: {
     if (!gate.mention.test(text)) {
       gate.onDecision?.(text, "deliberate")
       geminiSession.notifyHeard(`[meeting audio] ${name}: ${text}`)
+      // Same silent deliberation OpenAI runs on unaddressed turns: the
+      // agent can raise its hand (or drop a chat aside) without being
+      // named — otherwise a gated Gemini agent can never self-initiate.
+      void geminiSession.deliberate(`${name}: ${text}`).then((decision) => {
+        if (decision === "raise-hand") gate.onHandRaise()
+      })
       return
     }
     const speaks = gate.mentionSpeaks?.() ?? true
