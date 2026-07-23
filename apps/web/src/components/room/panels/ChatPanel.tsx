@@ -13,7 +13,7 @@ import {
   mentionQuery,
   useMentionables,
 } from "@/components/room/panels/MentionPicker"
-import { $chatMessages, addChatMessage } from "@/stores/roomData"
+import { $chatMessages, $typingAgents, addChatMessage } from "@/stores/roomData"
 
 /**
  * Render message text with URLs as real links. `break-all` on the anchor so
@@ -38,9 +38,18 @@ function linkify(text: string): React.ReactNode[] {
   )
 }
 
+/** "Ada is typing…", "Ada and Ben are typing…", "3 agents are typing…". */
+function typingLabel(names: string[]): string {
+  if (names.length === 1) return `${names[0]} is typing`
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing`
+  return `${names.length} agents are typing`
+}
+
 export function ChatPanel() {
   const { localParticipant } = useLocalParticipant()
   const messages = useStore($chatMessages)
+  const typing = useStore($typingAgents)
+  const typingNames = Object.values(typing).map((t) => t.name)
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
   const mentionables = useMentionables()
@@ -141,6 +150,19 @@ export function ChatPanel() {
         })}
         <div ref={bottomRef} />
       </ul>
+      {typingNames.length > 0 && (
+        <div
+          aria-live="polite"
+          className="flex items-center gap-2 px-4 pb-1 text-base-content/50 text-xs"
+        >
+          <span className="flex items-center gap-0.5" aria-hidden="true">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </span>
+          <span>{typingLabel(typingNames)}…</span>
+        </div>
+      )}
       <form onSubmit={handleSend} className="relative flex gap-2 p-3">
         {query !== null && (
           <MentionPicker

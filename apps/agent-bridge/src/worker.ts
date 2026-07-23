@@ -32,6 +32,7 @@ import {
   type SharedDoc,
   sharedDocSchema,
   TRANSCRIPTION_TOPIC,
+  TYPING_HEARTBEAT_MS,
 } from "@meet/shared"
 import {
   CURSOR_FRAME_MS,
@@ -304,6 +305,39 @@ export default defineAgent({
           topic: DataTopic.Chat,
         })
         .catch(() => undefined)
+    }
+
+    // "typing…" while the agent composes a chat reply. A heartbeat keeps a
+    // long deliberation from expiring on the clients (they prune after
+    // TYPING_STALE_MS), and a crashed worker's indicator self-clears when the
+    // heartbeat stops. Sending is idempotent — repeated true/false is fine.
+    let typingHeartbeat: ReturnType<typeof setInterval> | null = null
+    const setTyping = (typing: boolean) => {
+      const beat = () =>
+        publishActivity({
+          type: "typing",
+          agentId: entry.id,
+          typing: true,
+          at: Date.now(),
+        })
+      if (typing) {
+        beat()
+        if (!typingHeartbeat) {
+          typingHeartbeat = setInterval(beat, TYPING_HEARTBEAT_MS)
+          typingHeartbeat.unref?.()
+        }
+      } else {
+        if (typingHeartbeat) {
+          clearInterval(typingHeartbeat)
+          typingHeartbeat = null
+        }
+        publishActivity({
+          type: "typing",
+          agentId: entry.id,
+          typing: false,
+          at: Date.now(),
+        })
+      }
     }
 
     // Vision failures used to be invisible (issue #110: "the agent acts as
@@ -912,6 +946,7 @@ export default defineAgent({
         `${message.fromName} (in the meeting chat — reply concisely, your reply appears in the chat): ${message.text}`,
       )
       setState(sessionState.muted ? "muted" : "thinking")
+      setTyping(true)
       try {
         let reply = ""
         for await (const frame of brain.runTurn(input, images)) {
@@ -963,6 +998,7 @@ export default defineAgent({
             : "(Sorry, I couldn't process that.)",
         )
       } finally {
+        setTyping(false)
         setState(sessionState.muted ? "muted" : "listening")
       }
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   type AgentControl,
+  agentActivityEventSchema,
   agentControlSchema,
   type CanvasRecord,
   canvasOpBatchSchema,
@@ -382,5 +383,28 @@ describe("canvasOpSchema", () => {
   it("caps a batch at 50 ops", () => {
     const ops = Array.from({ length: 51 }, () => ({ op: "clear" }))
     expect(canvasOpBatchSchema.safeParse(ops).success).toBe(false)
+  })
+})
+
+describe("agentActivityEventSchema typing", () => {
+  it("accepts a typing event in either direction", () => {
+    for (const typing of [true, false]) {
+      const parsed = agentActivityEventSchema.safeParse({
+        type: "typing",
+        agentId: "scout",
+        typing,
+        at: 1,
+      })
+      expect(parsed.success).toBe(true)
+    }
+  })
+
+  it("requires the typing boolean", () => {
+    const parsed = agentActivityEventSchema.safeParse({
+      type: "typing",
+      agentId: "scout",
+      at: 1,
+    })
+    expect(parsed.success).toBe(false)
   })
 })
