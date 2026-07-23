@@ -11,11 +11,14 @@
 //    session offers cannot be implemented — gated turn policies are
 //    rejected upstream for this provider.
 
+import { canvasOpBatchSchema } from "@meet/shared"
 import {
   CANCEL_TOOL,
   CHAT_TOOL,
   DELEGATE_TOOL,
+  DRAW_CANVAS_TOOL,
   LOOK_TOOL,
+  READ_CANVAS_TOOL,
   READ_DOC_TOOL,
   type RealtimeSessionOptions,
   toolDeclarations,
@@ -243,6 +246,28 @@ export class GeminiLiveSession implements VoiceSession {
           return (
             (await this.#opts.updateDoc?.(instruction)) ??
             "You couldn't update the document."
+          )
+        })
+        break
+      case READ_CANVAS_TOOL:
+        void this.#docTool(
+          call,
+          async () =>
+            (await this.#opts.readCanvas?.()) ??
+            "You can't read the whiteboard.",
+        )
+        break
+      case DRAW_CANVAS_TOOL:
+        void this.#docTool(call, async () => {
+          // Gemini delivers arguments as objects, already parsed.
+          const parsed = canvasOpBatchSchema.safeParse(call.args?.ops)
+          if (!parsed.success) {
+            const issue = parsed.error.issues[0]
+            return `Those drawing operations were invalid (${issue?.path.join(".")}: ${issue?.message}). Fix the batch and try again.`
+          }
+          return (
+            (await this.#opts.drawCanvas?.(parsed.data)) ??
+            "You can't draw right now."
           )
         })
         break

@@ -28,6 +28,7 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  PenLine,
   ScrollText,
   Settings,
   Users,
@@ -45,6 +46,7 @@ import { useStickyDevices } from "@/hooks/useStickyDevices"
 import { useVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { $cameraEffect } from "@/stores/cameraEffect"
+import { $canvasOpen, $canvasUnseen } from "@/stores/canvas"
 import { type DeviceKind, setDevicePref } from "@/stores/devicePrefs"
 import { $incomingVideoOff, setIncomingVideoOff } from "@/stores/incomingVideo"
 import { $openPanel, togglePanel } from "@/stores/panels"
@@ -77,6 +79,8 @@ export function ControlBar({
   // red button shouldn't drop you out of the call and back through the lobby.
   const [confirmLeave, setConfirmLeave] = useState(false)
   const openPanel = useStore($openPanel)
+  const whiteboardOpen = useStore($canvasOpen)
+  const canvasUnseen = useStore($canvasUnseen)
   const participants = useParticipants()
   const waitingCount = participants.filter(
     (p) => parseParticipantMeta(p.metadata)?.kind === "waiting",
@@ -406,6 +410,23 @@ export function ControlBar({
             aria-label="Doc"
           >
             <FileText className="size-5" />
+          </button>
+        </div>
+        <div className="tooltip tooltip-bottom" data-tip="Whiteboard">
+          <button
+            type="button"
+            className={`btn btn-circle indicator ${whiteboardOpen ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => {
+              const opening = !$canvasOpen.get()
+              $canvasOpen.set(opening)
+              if (opening) $canvasUnseen.set(false)
+            }}
+            aria-label="Whiteboard"
+          >
+            {canvasUnseen && !whiteboardOpen && (
+              <span className="badge indicator-item badge-primary badge-xs" />
+            )}
+            <PenLine className="size-5" />
           </button>
         </div>
         <div className="tooltip tooltip-bottom" data-tip="Settings">

@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest"
 import {
   type AgentControl,
   agentControlSchema,
+  type CanvasRecord,
+  canvasOpBatchSchema,
+  canvasOpSchema,
+  chunkCanvasChanges,
   clampIncomingDocRev,
   defaultRoomSettings,
   describeAgentControl,
   emptySharedDoc,
   MAX_DOC_REV,
+  mergeCanvasRecord,
   mergeSharedDoc,
   nextDocRev,
   parseRoomSettings,
@@ -267,5 +272,115 @@ describe("mergeSharedDoc", () => {
   it("accepts the first real edit over an empty document", () => {
     const incoming = doc({ text: "# Plan", rev: 1, at: 5 })
     expect(mergeSharedDoc(emptySharedDoc, incoming).text).toBe("# Plan")
+  })
+})
+
+function rec(overrides: Partial<CanvasRecord>): CanvasRecord {
+  return {
+    id: "shape:s1",
+    record: { typeName: "shape" },
+    v: 1,
+    at: 100,
+    by: "a",
+    ...overrides,
+  }
+}
+
+describe("mergeCanvasRecord", () => {
+  it("accepts anything over an absent record", () => {
+    const incoming = rec({ v: 1 })
+    expect(mergeCanvasRecord(undefined, incoming)).toBe(incoming)
+  })
+
+  it("takes the higher version", () => {
+    const current = rec({ v: 1, record: { w: 1 } })
+    const incoming = rec({ v: 2, record: { w: 2 } })
+    expect(mergeCanvasRecord(current, incoming).record).toEqual({ w: 2 })
+  })
+
+  it("ignores a stale broadcast that arrives late", () => {
+    const current = rec({ v: 5 })
+    const incoming = rec({ v: 4, record: { w: 9 } })
+    expect(mergeCanvasRecord(current, incoming)).toBe(current)
+  })
+
+  it("lets a tombstone beat an older edit and lose to a newer one", () => {
+    const edit = rec({ v: 2 })
+    const tombstone = rec({ v: 3, record: null })
+    // Delete wins over the edit it followed…
+    expect(mergeCanvasRecord(edit, tombstone).record).toBeNull()
+    // …and a deliberate redraw at a higher version resurrects the shape.
+    const redraw = rec({ v: 4, record: { w: 3 } })
+    expect(mergeCanvasRecord(tombstone, redraw).record).toEqual({ w: 3 })
+  })
+
+  it("breaks a full tie the same way on every peer", () => {
+    const mine = rec({ v: 2, at: 100, by: "aaa", record: { w: 1 } })
+    const theirs = rec({ v: 2, at: 100, by: "zzz", record: { w: 2 } })
+    expect(mergeCanvasRecord(mine, theirs)).toBe(theirs)
+    expect(mergeCanvasRecord(theirs, mine)).toBe(theirs)
+  })
+})
+
+describe("chunkCanvasChanges", () => {
+  it("keeps a small batch in one message", () => {
+    const changes = [rec({ id: "shape:a" }), rec({ id: "shape:b" })]
+    expect(chunkCanvasChanges(changes)).toEqual([changes])
+  })
+
+  it("splits when a chunk would exceed the byte budget", () => {
+    const fat = rec({ record: { d: "x".repeat(600) } })
+    const changes = Array.from({ length: 10 }, (_, i) =>
+      rec({ ...fat, id: `shape:s${i}` }),
+    )
+    const chunks = chunkCanvasChanges(changes, 2000)
+    expect(chunks.length).toBeGreaterThan(1)
+    expect(chunks.flat()).toEqual(changes)
+    for (const chunk of chunks.slice(0, -1)) {
+      expect(JSON.stringify(chunk).length).toBeLessThanOrEqual(2400)
+    }
+  })
+
+  it("still ships a record too big for any chunk, alone", () => {
+    const huge = rec({ record: { d: "x".repeat(5000) } })
+    expect(
+      chunkCanvasChanges([rec({}), huge, rec({ id: "shape:z" })], 2000),
+    ).toHaveLength(3)
+  })
+})
+
+describe("canvasOpSchema", () => {
+  it("accepts the primitives an agent draws with", () => {
+    const ops = [
+      { op: "rect", id: "api", x: 0, y: 0, w: 160, h: 80, label: "API" },
+      { op: "arrow", id: "a1", from: "api", to: "db", label: "queries" },
+      {
+        op: "draw",
+        id: "d1",
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 5 },
+        ],
+      },
+      { op: "note", id: "n1", x: 300, y: 0, text: "TODO", color: "yellow" },
+      { op: "clear" },
+    ]
+    expect(canvasOpBatchSchema.safeParse(ops).success).toBe(true)
+  })
+
+  it("rejects a shape with no id, zero size, or an unknown color", () => {
+    for (const bad of [
+      { op: "rect", id: "", x: 0, y: 0, w: 10, h: 10 },
+      { op: "rect", id: "a", x: 0, y: 0, w: 0, h: 10 },
+      { op: "text", id: "t", x: 0, y: 0, text: "hi", color: "mauve" },
+      { op: "draw", id: "d", points: [{ x: 0, y: 0 }] },
+    ]) {
+      expect(canvasOpSchema.safeParse(bad).success).toBe(false)
+    }
+  })
+
+  it("caps a batch at 50 ops", () => {
+    const ops = Array.from({ length: 51 }, () => ({ op: "clear" }))
+    expect(canvasOpBatchSchema.safeParse(ops).success).toBe(false)
   })
 })

@@ -18,8 +18,11 @@ import {
   type AgentActivityEvent,
   type AgentState,
   agentControlSchema,
+  type CanvasDiff,
+  type CanvasOp,
   type ChatMessage,
   chatMessageSchema,
+  chunkCanvasChanges,
   DataTopic,
   type ParticipantMeta,
   parseParticipantMeta,
@@ -27,6 +30,7 @@ import {
 } from "@meet/shared"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
+import { buildCanvasRecords } from "./canvas-records.js"
 import { controlAllowed } from "./control-auth.js"
 import {
   dynamicAgentsPublicOnly,
@@ -38,10 +42,13 @@ import { LoopedTtyClient } from "./looped-tty.js"
 import { type Brain, LoopedWebhookClient } from "./looped-webhook.js"
 import {
   describeRoster,
+  fetchCanvas,
   fetchSharedDoc,
   fetchTranscript,
+  formatCanvas,
   formatSharedDoc,
   formatTranscript,
+  postCanvasDiff,
   postDebugEvent,
   pushBounded,
   saveSharedDoc,
@@ -309,15 +316,57 @@ export default defineAgent({
       return "Saved. Everyone can see the updated document."
     }
 
+    /**
+     * Draw on the shared whiteboard and tell the room, mirroring publishDoc:
+     * persist first (so a client that reacts to the broadcast and refetches
+     * sees a store at least as new), then broadcast the same diff message
+     * clients exchange among themselves.
+     */
+    const publishCanvasOps = async (ops: CanvasOp[]): Promise<string> => {
+      const snapshot = await fetchCanvas(roomName)
+      const { changes, summary, warnings } = buildCanvasRecords(
+        ops,
+        new Map(snapshot.records.map((r) => [r.id, r])),
+        { identity: `agent-${entry.id}`, name: entry.name },
+      )
+      if (changes.length === 0) {
+        return `Nothing was drawn. ${warnings.join(" ")}`.trim()
+      }
+      const diff: CanvasDiff = {
+        type: "diff",
+        from: `agent-${entry.id}`,
+        fromName: entry.name,
+        changes,
+      }
+      if (!(await postCanvasDiff(roomName, diff))) {
+        return "The drawing couldn't be saved."
+      }
+      for (const chunk of chunkCanvasChanges(changes)) {
+        local
+          .publishData(
+            new TextEncoder().encode(
+              JSON.stringify({ ...diff, changes: chunk }),
+            ),
+            { reliable: true, topic: DataTopic.Canvas },
+          )
+          .catch(() => undefined)
+      }
+      return [summary, ...warnings].join(" ").trim()
+    }
+    const readCanvas = async (): Promise<string> =>
+      formatCanvas(await fetchCanvas(roomName)) || "The whiteboard is empty."
+
     // Meeting context: what was said before the agent joined (from the
     // control API's transcript store) plus who's in the room. Wrapping the
     // brain injects it into the first turn on every path — voice, chat
     // mention, or realtime ask_agent delegation.
     const priorTranscript = formatTranscript(await fetchTranscript(roomName))
     const priorDoc = formatSharedDoc(await fetchSharedDoc(roomName))
+    const priorCanvas = formatCanvas(await fetchCanvas(roomName))
     const meetingContext = [
       `Participants in the meeting when you joined: ${describeRoster(ctx.room)}.`,
       priorDoc,
+      priorCanvas,
       // Say so explicitly: an agent that doesn't know a share exists can't
       // offer to look at it, and one that doesn't know it's blind will
       // happily invent what's on screen.
@@ -477,6 +526,8 @@ export default defineAgent({
         vad: ctx.proc.userData.vad as silero.VAD | undefined,
         readDoc: async () => (await fetchSharedDoc(roomName)).text,
         writeDoc: publishDoc,
+        readCanvas,
+        drawCanvas: publishCanvasOps,
         context: meetingContext,
         onSpoke: (text) =>
           pushBounded(heardSince, `${entry.name} (you, aloud): ${text}`),

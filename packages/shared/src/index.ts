@@ -4,6 +4,8 @@ import { z } from "zod"
 export const DataTopic = {
   AgentActivity: "agent-activity",
   AgentControl: "agent-control",
+  Canvas: "canvas",
+  CanvasPresence: "canvas-presence",
   Chat: "chat",
   Doc: "doc",
   DocPresence: "doc-presence",
@@ -506,6 +508,226 @@ export function docCursorColor(identity: string, joinIndex: number): string {
   }
   return `hsl(${((hash % 360) + 360) % 360} 70% 45%)`
 }
+
+/**
+ * The meeting's shared whiteboard, on the `canvas` topic.
+ *
+ * Where the shared doc is one LWW value, the canvas is a map of them: each
+ * Excalidraw element syncs independently with its own clock, so two people
+ * drawing different shapes never conflict, and the worst concurrent case —
+ * both editing the same shape — costs one edit, the same accepted trade as
+ * `mergeSharedDoc`. The element itself is carried opaquely; only the clock
+ * is meeting-protocol. Deletions ride Excalidraw's own `isDeleted` flag,
+ * which must outlive the delete broadcast so a straggling edit of a deleted
+ * shape loses to the deletion instead of resurrecting it.
+ */
+export const canvasRecordSchema = z.object({
+  /** The Excalidraw element id. */
+  id: z.string(),
+  /** The Excalidraw element JSON (null kept for wire compatibility). */
+  record: z.record(z.string(), z.unknown()).nullable(),
+  /** Bumped by the writer on every edit; the primary ordering. */
+  v: z.number().int().min(0),
+  at: z.number(),
+  by: z.string(),
+})
+export type CanvasRecord = z.infer<typeof canvasRecordSchema>
+
+/** Per-record winner pick; same convergence contract as `mergeSharedDoc`. */
+export function mergeCanvasRecord(
+  current: CanvasRecord | undefined,
+  incoming: CanvasRecord,
+): CanvasRecord {
+  if (!current) return incoming
+  if (incoming.v !== current.v) {
+    return incoming.v > current.v ? incoming : current
+  }
+  if (incoming.at !== current.at) {
+    return incoming.at > current.at ? incoming : current
+  }
+  return incoming.by > current.by ? incoming : current
+}
+
+/** A batch of record puts/tombstones on the reliable `canvas` topic. */
+export const canvasDiffSchema = z.object({
+  type: z.literal("diff"),
+  from: z.string(),
+  fromName: z.string(),
+  changes: z.array(canvasRecordSchema).min(1),
+})
+export type CanvasDiff = z.infer<typeof canvasDiffSchema>
+
+/**
+ * The GET/PUT envelope for the bridge's canvas store. Version skew is
+ * Excalidraw's problem — clients pass fetched elements through
+ * `restoreElements`, so no schema descriptor rides along.
+ */
+export const canvasSnapshotSchema = z.object({
+  records: z.array(canvasRecordSchema),
+})
+export type CanvasSnapshot = z.infer<typeof canvasSnapshotSchema>
+
+export const emptyCanvasSnapshot: CanvasSnapshot = {
+  records: [],
+}
+
+/** Page-space cursor on the lossy `canvas-presence` topic. */
+export const canvasPresenceSchema = z.object({
+  type: z.literal("cursor"),
+  from: z.string(),
+  name: z.string(),
+  x: z.number(),
+  y: z.number(),
+  at: z.number(),
+})
+export type CanvasPresence = z.infer<typeof canvasPresenceSchema>
+
+// Cursor colors come from the doc's palette (`docCursorColor`) so one person
+// is one color everywhere — the whiteboard adds only its own timings.
+export const CANVAS_PRESENCE_THROTTLE_MS = 100
+export const CANVAS_PRESENCE_HEARTBEAT_MS = 3_000
+export const CANVAS_PRESENCE_STALE_MS = 8_000
+
+/** Snapshot cap. Freehand strokes are fat; the doc's 256KB would pinch. */
+export const MAX_CANVAS_BYTES = 1024 * 1024
+
+/**
+ * LiveKit reliable data messages cap out around 15KiB; diffs are chunked
+ * under that. A record too big even alone still ships (the transport
+ * fragments lossily rather than us silently dropping content) — callers
+ * should downsample oversized freehand strokes before publishing instead.
+ */
+export const MAX_CANVAS_MESSAGE_BYTES = 14_000
+
+export function chunkCanvasChanges(
+  changes: CanvasRecord[],
+  maxBytes = MAX_CANVAS_MESSAGE_BYTES,
+): CanvasRecord[][] {
+  const chunks: CanvasRecord[][] = []
+  let chunk: CanvasRecord[] = []
+  let size = 0
+  for (const change of changes) {
+    const bytes = JSON.stringify(change).length
+    if (chunk.length > 0 && size + bytes > maxBytes) {
+      chunks.push(chunk)
+      chunk = []
+      size = 0
+    }
+    chunk.push(change)
+    size += bytes
+  }
+  if (chunk.length > 0) chunks.push(chunk)
+  return chunks
+}
+
+/**
+ * The drawing vocabulary agents use — deliberately simpler than raw canvas
+ * elements (page-pixel coords, short author-chosen ids, arrows that connect
+ * shapes by id). The bridge translates ops into Excalidraw elements.
+ * Shared so a future brain-facing control endpoint speaks the same language.
+ */
+const canvasPointSchema = z.object({ x: z.number(), y: z.number() })
+
+export const canvasColorSchema = z.enum([
+  "black",
+  "grey",
+  "light-violet",
+  "violet",
+  "blue",
+  "light-blue",
+  "yellow",
+  "orange",
+  "green",
+  "light-green",
+  "light-red",
+  "red",
+  "white",
+])
+export type CanvasColor = z.infer<typeof canvasColorSchema>
+
+export const canvasOpSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("rect"),
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    w: z.number().positive(),
+    h: z.number().positive(),
+    label: z.string().optional(),
+    color: canvasColorSchema.optional(),
+    fill: z.enum(["none", "semi", "solid"]).optional(),
+  }),
+  z.object({
+    op: z.literal("ellipse"),
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    w: z.number().positive(),
+    h: z.number().positive(),
+    label: z.string().optional(),
+    color: canvasColorSchema.optional(),
+    fill: z.enum(["none", "semi", "solid"]).optional(),
+  }),
+  z.object({
+    op: z.literal("text"),
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    text: z.string().min(1),
+    size: z.enum(["s", "m", "l", "xl"]).optional(),
+    color: canvasColorSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("note"),
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    text: z.string().min(1),
+    color: canvasColorSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("arrow"),
+    id: z.string().min(1),
+    /** Shape ids to attach the ends to; free points as the alternative. */
+    from: z.string().optional(),
+    to: z.string().optional(),
+    fromPoint: canvasPointSchema.optional(),
+    toPoint: canvasPointSchema.optional(),
+    label: z.string().optional(),
+    color: canvasColorSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("draw"),
+    id: z.string().min(1),
+    points: z.array(canvasPointSchema).min(2),
+    color: canvasColorSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("move"),
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+  }),
+  z.object({
+    op: z.literal("update"),
+    id: z.string().min(1),
+    label: z.string().optional(),
+    text: z.string().optional(),
+    color: canvasColorSchema.optional(),
+    w: z.number().positive().optional(),
+    h: z.number().positive().optional(),
+  }),
+  z.object({
+    op: z.literal("delete"),
+    id: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("clear"),
+  }),
+])
+export type CanvasOp = z.infer<typeof canvasOpSchema>
+
+export const canvasOpBatchSchema = z.array(canvasOpSchema).min(1).max(50)
 
 /**
  * Only one screen share owns the stage. Starting a share broadcasts a

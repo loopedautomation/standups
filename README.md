@@ -23,6 +23,7 @@ Self-hostable video meetings with first-class AI agent participants. Share a lin
 - **Barge-in & mute** — just start talking and the agent stops, the way it would for a person; tap to cut it off explicitly, or mute it and it knows, replying into the chat instead of speaking until unmuted.
 - **Screenshare vision** — share your screen and the agent sees it. Pipeline agents get a current frame with every question; realtime agents look on demand with `look_at_screen`, so "what's this error?" is answered from the screen rather than guessed. Sharers are told which agents can see, and `AGENT_SCREEN_VISION=off` turns it off.
 - **Shared doc** — a markdown document the whole room edits together, and the agent writes into: talk through a plan and ask it to write the thing up. Survives refreshes and late joiners.
+- **Shared whiteboard** — an [Excalidraw](https://github.com/excalidraw/excalidraw) infinite canvas the whole room draws on, with live cursors — and realtime agents draw on it too, sketching boxes, arrows and notes while they talk: ask for an architecture diagram and watch it appear as it's explained. Survives refreshes and late joiners. MIT-licensed, no keys, no watermark.
 - **Live transcript & chat** — built-in transcription panel (server-side, or in-browser via WASM) and chat with `@AgentName` mentions.
 - **Voices** — OpenAI or ElevenLabs TTS per agent; light/dark looped theming (DaisyUI — easy to whitelabel).
 

@@ -1,10 +1,15 @@
 import type { Room } from "@livekit/rtc-node"
 import {
+  type CanvasDiff,
+  type CanvasSnapshot,
+  canvasSnapshotSchema,
+  emptyCanvasSnapshot,
   emptySharedDoc,
   parseParticipantMeta,
   type SharedDoc,
   sharedDocSchema,
 } from "@meet/shared"
+import { describeCanvas } from "./canvas-records.js"
 import type { Brain } from "./looped-webhook.js"
 
 // Meeting context shared with agent brains: who is in the room, and what has
@@ -112,6 +117,56 @@ export async function saveSharedDoc(
   } catch {
     return null
   }
+}
+
+/** The room's shared whiteboard. Empty on any failure. */
+export async function fetchCanvas(room: string): Promise<CanvasSnapshot> {
+  try {
+    const res = await fetch(
+      `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/canvas`,
+      {
+        headers: { authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}` },
+      },
+    )
+    if (!res.ok) return emptyCanvasSnapshot
+    const parsed = canvasSnapshotSchema.safeParse(await res.json())
+    return parsed.success ? parsed.data : emptyCanvasSnapshot
+  } catch {
+    return emptyCanvasSnapshot
+  }
+}
+
+/** Persists a batch of canvas record changes drawn by the agent. */
+export async function postCanvasDiff(
+  room: string,
+  diff: CanvasDiff,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/canvas/diff`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}`,
+        },
+        body: JSON.stringify(diff),
+      },
+    )
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** The whiteboard as brain-readable context; "" when nothing is drawn. */
+export function formatCanvas(
+  snapshot: CanvasSnapshot,
+  maxChars = 2000,
+): string {
+  const description = describeCanvas(snapshot.records, maxChars)
+  if (!description) return ""
+  return `The meeting's shared whiteboard currently shows:\n${description}`
 }
 
 /** The shared document as brain-readable context, bounded like the transcript. */

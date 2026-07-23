@@ -6,6 +6,12 @@
 // permissions and audit trail. No SDK — the protocol is JSON events over a
 // websocket.
 
+import {
+  type CanvasOp,
+  canvasColorSchema,
+  canvasOpBatchSchema,
+} from "@meet/shared"
+
 /** The audio format both directions of the session speak: 24 kHz mono PCM16. */
 export const REALTIME_SAMPLE_RATE = 24_000
 
@@ -31,6 +37,10 @@ export const UPDATE_DOC_TOOL = "update_shared_doc"
 
 /** The tool the realtime model calls to look at the shared screen. */
 export const LOOK_TOOL = "look_at_screen"
+
+/** The tools the realtime model calls to read and draw on the whiteboard. */
+export const READ_CANVAS_TOOL = "read_canvas"
+export const DRAW_CANVAS_TOOL = "draw_on_canvas"
 
 const DEFAULT_HOST = "wss://api.openai.com/v1/realtime"
 
@@ -78,6 +88,14 @@ export type RealtimeSessionOptions = {
    */
   readDoc?: () => Promise<string>
   updateDoc?: (instruction: string) => Promise<string>
+  /**
+   * The meeting's shared whiteboard. Reading returns a text description of
+   * every shape with its id; drawing takes a batch of primitive ops. Both
+   * or neither — a model that can draw but not read would trample what
+   * others drew.
+   */
+  readCanvas?: () => Promise<string>
+  drawCanvas?: (ops: CanvasOp[]) => Promise<string>
   /**
    * Look at the screen someone is sharing and describe it. The realtime
    * model has no eyes of its own here — this captures a frame and puts it
@@ -147,7 +165,10 @@ export type ToolDeclaration = {
  * speech-to-speech model fronts the brain.
  */
 export function toolDeclarations(
-  opts: Pick<RealtimeSessionOptions, "readDoc" | "updateDoc" | "lookAtScreen">,
+  opts: Pick<
+    RealtimeSessionOptions,
+    "readDoc" | "updateDoc" | "readCanvas" | "drawCanvas" | "lookAtScreen"
+  >,
 ): ToolDeclaration[] {
   return [
     {
@@ -229,6 +250,126 @@ export function toolDeclarations(
                 },
               },
               required: ["instruction"],
+            },
+          },
+        ]
+      : []),
+    ...(opts.readCanvas && opts.drawCanvas
+      ? [
+          {
+            name: READ_CANVAS_TOOL,
+            description:
+              "Read what is currently on the meeting's shared whiteboard as " +
+              "a text description — every shape with its id, position, size " +
+              "and label. Use it before drawing onto an existing diagram, " +
+              "and whenever someone refers to 'the whiteboard', 'the board' " +
+              "or 'the diagram'.",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            name: DRAW_CANVAS_TOOL,
+            description:
+              "Draw on the meeting's shared whiteboard, which everyone can " +
+              "see live. Send a batch of simple operations: rectangles, " +
+              "ellipses, sticky notes, text, freehand lines, and arrows " +
+              "that connect shapes by id. Coordinates are page pixels: lay " +
+              "diagrams out left-to-right or top-down starting near (0,0) " +
+              "on roughly a 1600x1000 area, size boxes around 160x80, and " +
+              "leave ~80px gaps. Give every shape a short memorable id " +
+              "(e.g. 'api') so you can connect, move or update it later. " +
+              "Build complex diagrams incrementally across several calls " +
+              "while you talk — draw a part, say what it is, draw the " +
+              "next. If others may have drawn, call read_canvas first. " +
+              "Never narrate coordinates or ids out loud.",
+            parameters: {
+              type: "object",
+              properties: {
+                ops: {
+                  type: "array",
+                  description: "Operations applied in order.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      op: {
+                        type: "string",
+                        enum: [
+                          "rect",
+                          "ellipse",
+                          "text",
+                          "note",
+                          "arrow",
+                          "draw",
+                          "move",
+                          "update",
+                          "delete",
+                          "clear",
+                        ],
+                      },
+                      id: {
+                        type: "string",
+                        description:
+                          "Short id, e.g. 'api'. Required for every op " +
+                          "except clear.",
+                      },
+                      x: { type: "number" },
+                      y: { type: "number" },
+                      w: { type: "number" },
+                      h: { type: "number" },
+                      label: {
+                        type: "string",
+                        description: "Label on rect/ellipse/arrow shapes.",
+                      },
+                      text: {
+                        type: "string",
+                        description: "Content of text/note shapes.",
+                      },
+                      color: {
+                        type: "string",
+                        enum: [...canvasColorSchema.options],
+                      },
+                      fill: { type: "string", enum: ["none", "semi", "solid"] },
+                      size: { type: "string", enum: ["s", "m", "l", "xl"] },
+                      from: {
+                        type: "string",
+                        description: "Arrow start: a shape id to attach to.",
+                      },
+                      to: {
+                        type: "string",
+                        description: "Arrow end: a shape id to attach to.",
+                      },
+                      fromPoint: {
+                        type: "object",
+                        description: "Arrow start as a free point instead.",
+                        properties: {
+                          x: { type: "number" },
+                          y: { type: "number" },
+                        },
+                      },
+                      toPoint: {
+                        type: "object",
+                        description: "Arrow end as a free point instead.",
+                        properties: {
+                          x: { type: "number" },
+                          y: { type: "number" },
+                        },
+                      },
+                      points: {
+                        type: "array",
+                        description: "Freehand polyline, in page pixels.",
+                        items: {
+                          type: "object",
+                          properties: {
+                            x: { type: "number" },
+                            y: { type: "number" },
+                          },
+                        },
+                      },
+                    },
+                    required: ["op"],
+                  },
+                },
+              },
+              required: ["ops"],
             },
           },
         ]
@@ -443,6 +584,12 @@ export class RealtimeSession implements VoiceSession {
           void this.#docTool(String(event.call_id), () =>
             this.#updateDocText(String(event.arguments)),
           )
+        } else if (event.name === READ_CANVAS_TOOL) {
+          void this.#docTool(String(event.call_id), () => this.#readCanvas())
+        } else if (event.name === DRAW_CANVAS_TOOL) {
+          void this.#docTool(String(event.call_id), () =>
+            this.#drawCanvas(String(event.arguments)),
+          )
         } else if (event.name === LOOK_TOOL) {
           void this.#lookAtScreen(String(event.call_id))
         } else {
@@ -561,6 +708,26 @@ export class RealtimeSession implements VoiceSession {
     return (
       (await this.#opts.updateDoc?.(instruction)) ??
       "You couldn't update the document."
+    )
+  }
+
+  async #readCanvas(): Promise<string> {
+    return (await this.#opts.readCanvas?.()) ?? "You can't read the whiteboard."
+  }
+
+  async #drawCanvas(rawArguments: string): Promise<string> {
+    const parsed = canvasOpBatchSchema.safeParse(
+      (JSON.parse(rawArguments) as { ops?: unknown }).ops,
+    )
+    // Malformed ops go back as text, not an exception: the model can fix
+    // its batch and retry instead of falling silent.
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      return `Those drawing operations were invalid (${issue?.path.join(".")}: ${issue?.message}). Fix the batch and try again.`
+    }
+    return (
+      (await this.#opts.drawCanvas?.(parsed.data)) ??
+      "You can't draw right now."
     )
   }
 

@@ -2,9 +2,14 @@ import { serve } from "@hono/node-server"
 import { AgentServer, initializeLogger, ServerOptions } from "@livekit/agents"
 import {
   AGENT_VOICES,
+  type CanvasRecord,
+  canvasDiffSchema,
+  canvasSnapshotSchema,
   clampIncomingDocRev,
   emptySharedDoc,
   GEMINI_VOICES,
+  MAX_CANVAS_BYTES,
+  mergeCanvasRecord,
   mergeSharedDoc,
   OPENAI_TTS_VOICES,
   type SharedDoc,
@@ -354,6 +359,76 @@ app.put("/rooms/:room/doc", async (c) => {
   if (!docs.has(room)) evictOldestDocIfFull()
   docs.set(room, { updatedAt: Date.now(), doc })
   return c.json({ doc })
+})
+
+// ---- shared canvas store ---------------------------------------------------
+// The meeting's whiteboard: a map of Excalidraw elements, each with its own
+// LWW clock. Merged per record, so client snapshot PUTs and agent diff POSTs
+// land on the same state every peer's local merge did. Memory only, dropped
+// on the transcript's schedule. Deleted elements stay (isDeleted) until the
+// TTL sweep so a straggling edit can't resurrect a deleted shape.
+const canvases = new Map<
+  string,
+  { updatedAt: number; records: Map<string, CanvasRecord> }
+>()
+
+setInterval(
+  () => {
+    const cutoff = Date.now() - TRANSCRIPT_TTL_MS
+    for (const [room, entry] of canvases) {
+      if (entry.updatedAt < cutoff) canvases.delete(room)
+    }
+  },
+  60 * 60 * 1000,
+).unref()
+
+function canvasEntry(room: string) {
+  let entry = canvases.get(room)
+  if (!entry) {
+    entry = { updatedAt: Date.now(), records: new Map() }
+    canvases.set(room, entry)
+  }
+  return entry
+}
+
+function applyCanvasChanges(room: string, changes: CanvasRecord[]) {
+  const entry = canvasEntry(room)
+  for (const change of changes) {
+    const current = entry.records.get(change.id)
+    entry.records.set(change.id, mergeCanvasRecord(current, change))
+  }
+  entry.updatedAt = Date.now()
+  return entry
+}
+
+app.get("/rooms/:room/canvas", (c) => {
+  const { room } = c.req.param()
+  const entry = canvasEntry(room)
+  return c.json({ records: [...entry.records.values()] })
+})
+
+// Full snapshot from a client editor — self-healing for any broadcast it or
+// its peers missed. Merged per record, never blindly overwritten.
+app.put("/rooms/:room/canvas", async (c) => {
+  const { room } = c.req.param()
+  const body = await c.req.json().catch(() => null)
+  const parsed = canvasSnapshotSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: "invalid canvas" }, 400)
+  if (JSON.stringify(parsed.data.records).length > MAX_CANVAS_BYTES) {
+    return c.json({ error: "canvas too large" }, 413)
+  }
+  applyCanvasChanges(room, parsed.data.records)
+  return c.json({ ok: true })
+})
+
+// A diff batch from the agent worker (or, later, a brain-side tool).
+app.post("/rooms/:room/canvas/diff", async (c) => {
+  const { room } = c.req.param()
+  const body = await c.req.json().catch(() => null)
+  const parsed = canvasDiffSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: "invalid diff" }, 400)
+  applyCanvasChanges(room, parsed.data.changes)
+  return c.json({ ok: true })
 })
 
 // ---- debug access ----------------------------------------------------------

@@ -13,6 +13,7 @@ import {
   AGENT_BARGE_IN_ATTRIBUTE,
   type AgentActivityEvent,
   agentControlSchema,
+  type CanvasOp,
   chatMessageSchema,
   DataTopic,
 } from "@meet/shared"
@@ -122,13 +123,16 @@ export async function runRealtimeAgent(opts: {
   /** Read/write the meeting's shared markdown document. */
   readDoc?: () => Promise<string>
   writeDoc?: (text: string) => Promise<string>
+  /** Read/draw on the meeting's shared whiteboard. */
+  readCanvas?: () => Promise<string>
+  drawCanvas?: (ops: CanvasOp[]) => Promise<string>
   /** Meeting context (roster, prior transcript) folded into instructions. */
   context?: string
   /** Fed what the agent said aloud, for the brain's record of the meeting. */
   onSpoke?: (text: string) => void
 }): Promise<void> {
   const { ctx, entry, realtime, brain, state, callbacks, screen, vad } = opts
-  const { readDoc, writeDoc } = opts
+  const { readDoc, writeDoc, readCanvas, drawCanvas } = opts
   const local = ctx.room.localParticipant
   if (!local) throw new Error("no local participant")
   const provider = realtime.provider
@@ -413,6 +417,8 @@ export async function runRealtimeAgent(opts: {
     sendChat: callbacks.publishChat,
     readDoc,
     updateDoc,
+    readCanvas,
+    drawCanvas,
     onAgentSpoke: opts.onSpoke,
     // Offered only when a look could actually succeed. A webhook brain
     // drops images on the floor, so an agent on one must not be told it

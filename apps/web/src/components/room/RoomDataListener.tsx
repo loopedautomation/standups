@@ -3,14 +3,25 @@
 import { useDataChannel, useRoomContext } from "@livekit/components-react"
 import {
   agentActivityEventSchema,
+  canvasDiffSchema,
+  canvasSnapshotSchema,
   chatMessageSchema,
   DataTopic,
   docPresenceSchema,
+  parseParticipantMeta,
   sharedDocSchema,
 } from "@meet/shared"
 import { RoomEvent } from "livekit-client"
 import { useEffect } from "react"
+import { toast } from "react-toastify"
 import { roomAuthHeaders } from "@/lib/roomAuth"
+import {
+  $canvasOpen,
+  $canvasUnseen,
+  applyCanvasChanges,
+  noteAgentDrawing,
+  resetCanvas,
+} from "@/stores/canvas"
 import { applyDocUpdate, resetDoc } from "@/stores/doc"
 import {
   removeDocPresence,
@@ -26,6 +37,7 @@ import {
 /** Always-mounted subscriber: chat and agent activity survive panel toggling. */
 export function RoomDataListener({ slug }: { slug: string }) {
   const room = useRoomContext()
+
   useDataChannel(DataTopic.Chat, (msg) => {
     try {
       const parsed = chatMessageSchema.safeParse(
@@ -100,6 +112,40 @@ export function RoomDataListener({ slug }: { slug: string }) {
     } catch {}
   })
 
+  useDataChannel(DataTopic.Canvas, (msg) => {
+    try {
+      const parsed = canvasDiffSchema.safeParse(
+        JSON.parse(new TextDecoder().decode(msg.payload)),
+      )
+      if (!parsed.success) return
+      // The actual LiveKit sender outranks the payload's claimed one, same
+      // as chat. Own broadcasts already went through the local cache.
+      const sender = msg.from?.identity ?? parsed.data.from
+      if (sender === room.localParticipant.identity) return
+      const won = applyCanvasChanges(parsed.data.changes)
+      if (won.length === 0) return
+      const fromAgent = msg.from
+        ? parseParticipantMeta(msg.from.metadata)?.kind === "agent"
+        : parsed.data.from.startsWith("agent-")
+      const senderName = msg.from
+        ? msg.from.name || msg.from.identity
+        : parsed.data.fromName
+      if (fromAgent) noteAgentDrawing(senderName)
+      if (!$canvasOpen.get()) {
+        $canvasUnseen.set(true)
+        if (fromAgent) {
+          toast.info(`${senderName} is drawing on the whiteboard`, {
+            toastId: "canvas-agent-drawing",
+            onClick: () => {
+              $canvasOpen.set(true)
+              $canvasUnseen.set(false)
+            },
+          })
+        }
+      }
+    } catch {}
+  })
+
   // A dropped connection never sends a "left the editor" message, so the
   // cursor is cleared when the participant itself goes away.
   useEffect(() => {
@@ -129,11 +175,30 @@ export function RoomDataListener({ slug }: { slug: string }) {
     }
   }, [slug])
 
+  // Same for the whiteboard. Records carry their own clocks, so this fetch
+  // and any diffs racing past it converge whichever lands first.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/rooms/${slug}/canvas`, { headers: roomAuthHeaders(slug) })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return
+        const parsed = canvasSnapshotSchema.safeParse(body)
+        if (!parsed.success) return
+        applyCanvasChanges(parsed.data.records)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
   useEffect(
     () => () => {
       resetRoomData()
       resetDoc()
       resetDocPresence()
+      resetCanvas()
     },
     [],
   )
