@@ -46,7 +46,7 @@ import { useStickyDevices } from "@/hooks/useStickyDevices"
 import { useVoiceIsolation } from "@/hooks/useVoiceIsolation"
 import { cleanDeviceLabel } from "@/lib/deviceLabel"
 import { $cameraEffect } from "@/stores/cameraEffect"
-import { $canvasOpen, $canvasUnseen } from "@/stores/canvas"
+import { $agentDrawing, $canvasOpen, $canvasUnseen } from "@/stores/canvas"
 import { type DeviceKind, setDevicePref } from "@/stores/devicePrefs"
 import { $incomingVideoOff, setIncomingVideoOff } from "@/stores/incomingVideo"
 import { $openPanel, togglePanel } from "@/stores/panels"
@@ -81,6 +81,7 @@ export function ControlBar({
   const openPanel = useStore($openPanel)
   const whiteboardOpen = useStore($canvasOpen)
   const canvasUnseen = useStore($canvasUnseen)
+  const agentDrawing = useStore($agentDrawing)
   const participants = useParticipants()
   const waitingCount = participants.filter(
     (p) => parseParticipantMeta(p.metadata)?.kind === "waiting",
@@ -412,7 +413,14 @@ export function ControlBar({
             <FileText className="size-5" />
           </button>
         </div>
-        <div className="tooltip tooltip-bottom" data-tip="Whiteboard">
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip={
+            agentDrawing && !whiteboardOpen
+              ? `${agentDrawing.name} is drawing…`
+              : "Whiteboard"
+          }
+        >
           <button
             type="button"
             className={`btn btn-circle indicator ${whiteboardOpen ? "btn-primary" : "btn-ghost"}`}
@@ -421,10 +429,25 @@ export function ControlBar({
               $canvasOpen.set(opening)
               if (opening) $canvasUnseen.set(false)
             }}
-            aria-label="Whiteboard"
+            aria-label={
+              agentDrawing && !whiteboardOpen
+                ? `Whiteboard — ${agentDrawing.name} is drawing`
+                : "Whiteboard"
+            }
           >
-            {canvasUnseen && !whiteboardOpen && (
-              <span className="badge indicator-item badge-primary badge-xs" />
+            {/* Someone drawing right now outranks the passive unseen dot:
+                a live ping says "open me and watch", the dot only says
+                "something changed while you were away". */}
+            {agentDrawing && !whiteboardOpen ? (
+              <span className="indicator-item flex size-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+              </span>
+            ) : (
+              canvasUnseen &&
+              !whiteboardOpen && (
+                <span className="badge indicator-item badge-primary badge-xs" />
+              )
             )}
             <PenLine className="size-5" />
           </button>

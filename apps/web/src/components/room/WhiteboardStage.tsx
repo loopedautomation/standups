@@ -1,6 +1,7 @@
 "use client"
 
 import { useStore } from "@nanostores/react"
+import { PenLine } from "lucide-react"
 import dynamic from "next/dynamic"
 import { $agentDrawing } from "@/stores/canvas"
 
@@ -28,9 +29,10 @@ export function WhiteboardStage({ slug }: { slug: string }) {
       {/* Bottom-center: Excalidraw's own UI owns the top (menu, toolbar)
           and the bottom corners (zoom, help). */}
       {agentDrawing && (
-        <div className="badge badge-primary absolute bottom-3 left-1/2 z-10 -translate-x-1/2 gap-2 shadow-md">
-          <span className="loading loading-dots loading-xs" />
-          {agentDrawing.name} is drawing
+        <div className="badge badge-primary badge-lg pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-7rem)] -translate-x-1/2 gap-2 shadow-md">
+          <PenLine className="size-3.5 shrink-0 animate-pulse" />
+          <span className="truncate">{agentDrawing.name} is drawing</span>
+          <span className="loading loading-dots loading-xs shrink-0" />
         </div>
       )}
     </div>
