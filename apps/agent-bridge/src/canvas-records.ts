@@ -259,7 +259,26 @@ export function buildCanvasRecords(
       ),
       1,
     )
-    const spot = placeCreate(working, op.id, op, bboxW, bboxH)
+    // A redraw of an existing diagram is an edit, not a new drawing: anchor
+    // the block where its nodes already sit (explicit x/y still wins), so
+    // "add a cache box to the diagram" updates in place instead of laying
+    // out a duplicate in fresh space.
+    let spot: { x: number; y: number } | null = null
+    if (op.x === undefined || op.y === undefined) {
+      for (const child of shapes) {
+        const el = liveElement(
+          working.get(resolveId((child as { id: string }).id)),
+        )
+        if (el && typeof el.x === "number" && typeof el.y === "number") {
+          spot = {
+            x: (el.x as number) - ((child as { x?: number }).x ?? 0),
+            y: (el.y as number) - ((child as { y?: number }).y ?? 0),
+          }
+          break
+        }
+      }
+    }
+    spot ??= placeCreate(working, op.id, op, bboxW, bboxH)
     for (const child of expanded) {
       if (child.op === "arrow") {
         // Waypoints were computed diagram-relative; shift them to the spot
@@ -717,14 +736,20 @@ export function describeCanvas(
       return ay === by ? (a.x as number) - (b.x as number) : ay - by
     })
 
+  // Reverse palette lookup so edits can reference colors by name.
+  const colorNames = new Map(
+    Object.entries(STROKE_COLORS).map(([name, hex]) => [hex, name]),
+  )
   const lines: string[] = []
   for (const [id, element] of others) {
     const text = labelOf(id)
     const size = ` ${Math.round(element.width as number)}x${Math.round(
       element.height as number,
     )}`
+    const colorName = colorNames.get(element.strokeColor as string)
+    const color = colorName && colorName !== "black" ? ` ${colorName}` : ""
     lines.push(
-      `- ${element.type}${text ? ` "${truncate(text, 60)}"` : ""} (id ${id}) at (${Math.round(
+      `-${color} ${element.type}${text ? ` "${truncate(text, 60)}"` : ""} (id ${id}) at (${Math.round(
         element.x as number,
       )}, ${Math.round(element.y as number)})${size}`,
     )

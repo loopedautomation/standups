@@ -42,7 +42,7 @@ move, update, or delete shapes in later turns.
 | `update` | `id, label?, text?, color?, w?, h?` | restyle or relabel in place |
 | `delete` | `id` | arrows pointing at it stay but unbind |
 | `clear` | — | wipes the board; only when asked |
-| `diagram` | `id, mermaid, x?, y?` | a whole Mermaid `flowchart`/`graph` laid out automatically — **prefer this for any boxes-and-arrows structure**; node ids become `<id>.<node>` for later `move`/`update`/`arrow` ops |
+| `diagram` | `id, mermaid, x?, y?` | a whole Mermaid `flowchart`/`graph` laid out automatically — **prefer this for any boxes-and-arrows structure**; node ids become `<id>.<node>` for later `move`/`update`/`arrow` ops. Mermaid `style <node> fill:<color>` / `classDef` / `:::class` colors are honored (snapped to the palette below). **Editing:** re-send the same diagram `id` with the edited Mermaid and it updates in place — the way to add, remove, recolor or relabel parts of an existing diagram |
 
 Colors: `black` (default), `grey`, `blue`, `light-blue`, `violet`,
 `light-violet`, `green`, `light-green`, `yellow`, `orange`, `red`,

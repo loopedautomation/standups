@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { expandDiagram, parseMermaidFlowchart } from "./mermaid-diagram.js"
+import {
+  expandDiagram,
+  nearestCanvasColor,
+  parseMermaidFlowchart,
+} from "./mermaid-diagram.js"
 
 describe("parseMermaidFlowchart", () => {
   it("parses nodes, shapes, labels and direction", () => {
@@ -104,5 +108,36 @@ describe("expandDiagram", () => {
 
   it("returns null for unparseable source", () => {
     expect(expandDiagram("x", "pie title Pets")).toBeNull()
+  })
+
+  it("honors style, classDef and inline ::: colors, snapped to the palette", () => {
+    const ops = expandDiagram(
+      "col",
+      [
+        "flowchart TD",
+        "  a[Web] --> b[Queue]:::hot",
+        "  a --> c[DB]",
+        "  style a fill:#1971c2",
+        "  classDef hot fill:#e03131",
+        "  class c hot",
+      ].join("\n"),
+    )
+    const byId = new Map(
+      ops!
+        .filter((op) => op.op === "rect")
+        .map((op) => [op.id, op as { color?: string; fill?: string }]),
+    )
+    expect(byId.get("col.a")?.color).toBe("blue")
+    expect(byId.get("col.b")?.color).toBe("red")
+    expect(byId.get("col.c")?.color).toBe("red")
+    expect(byId.get("col.a")?.fill).toBe("semi")
+  })
+
+  it("snaps arbitrary hex and css names to the nearest palette color", () => {
+    expect(nearestCanvasColor("#e03131")).toBe("red")
+    expect(nearestCanvasColor("#ff0000")).toBe("red")
+    expect(nearestCanvasColor("purple")).toBe("violet")
+    expect(nearestCanvasColor("#fff")).toBe("white")
+    expect(nearestCanvasColor("not-a-color")).toBeUndefined()
   })
 })

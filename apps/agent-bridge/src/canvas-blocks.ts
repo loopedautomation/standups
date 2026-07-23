@@ -32,7 +32,10 @@ export const CANVAS_PROTOCOL_NOTE =
   '{"op":"diagram","id","mermaid"} (a Mermaid flowchart/graph source ' +
   "string — PREFER this for any boxes-and-arrows structure: it is laid " +
   "out automatically with proper spacing, no coordinates needed; node ids " +
-  'become "<id>.<node>" for later moves/updates). Coordinates ' +
+  'become "<id>.<node>" for later moves/updates; Mermaid style/classDef ' +
+  "fill colors are honored, snapped to the palette; re-sending the same " +
+  "diagram id with edited Mermaid updates the diagram IN PLACE — the way " +
+  "to add, remove, recolor or relabel parts of it). Coordinates " +
   "are page pixels on roughly a 1600x1000 area, y growing downward from " +
   "the top-left origin — align related shapes by arithmetic (bars on a " +
   "shared baseline end at the same y+h). Omit x/y on creates to " +

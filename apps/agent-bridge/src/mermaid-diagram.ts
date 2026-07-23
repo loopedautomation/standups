@@ -11,12 +11,75 @@
 // void its whole diagram.
 
 import dagre from "@dagrejs/dagre"
-import type { CanvasOp } from "@meet/shared"
+import type { CanvasColor, CanvasOp } from "@meet/shared"
 
 type ParsedNode = {
   id: string
   label: string
   shape: "rect" | "ellipse"
+  color?: CanvasColor
+}
+
+/**
+ * Representative hex per canvas color (Excalidraw's stroke palette), used
+ * to snap a Mermaid `style`/`classDef` fill to the drawing vocabulary.
+ * Local copy: canvas-records.ts imports this module, so it can't be the
+ * source without a cycle.
+ */
+const COLOR_HEX: Record<CanvasColor, [number, number, number]> = {
+  black: [30, 30, 30],
+  grey: [134, 142, 150],
+  "light-violet": [177, 151, 252],
+  violet: [151, 117, 250],
+  blue: [25, 113, 194],
+  "light-blue": [116, 192, 252],
+  yellow: [240, 140, 0],
+  orange: [232, 89, 12],
+  green: [47, 158, 68],
+  "light-green": [105, 219, 124],
+  "light-red": [255, 168, 168],
+  red: [224, 49, 49],
+  white: [255, 255, 255],
+}
+
+const CSS_COLOR_ALIASES: Record<string, CanvasColor> = {
+  gray: "grey",
+  purple: "violet",
+  pink: "light-red",
+  lightblue: "light-blue",
+  lightgreen: "light-green",
+  gold: "yellow",
+  cyan: "light-blue",
+  teal: "green",
+}
+
+/** Snap a Mermaid color value (hex or common name) to the canvas palette. */
+export function nearestCanvasColor(value: string): CanvasColor | undefined {
+  const raw = value.trim().toLowerCase()
+  if (raw in COLOR_HEX) return raw as CanvasColor
+  if (raw in CSS_COLOR_ALIASES) return CSS_COLOR_ALIASES[raw]
+  const hex = raw.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/)?.[1]
+  if (!hex) return undefined
+  const full =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : hex
+  const r = Number.parseInt(full.slice(0, 2), 16)
+  const g = Number.parseInt(full.slice(2, 4), 16)
+  const b = Number.parseInt(full.slice(4, 6), 16)
+  let best: CanvasColor = "black"
+  let bestDist = Number.POSITIVE_INFINITY
+  for (const [name, [cr, cg, cb]] of Object.entries(COLOR_HEX)) {
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
+    if (dist < bestDist) {
+      bestDist = dist
+      best = name as CanvasColor
+    }
+  }
+  return best
 }
 
 type ParsedEdge = {
@@ -60,8 +123,15 @@ function nodeShape(bracket: string | undefined): "rect" | "ellipse" {
 function takeNode(
   token: string,
   nodes: Map<string, ParsedNode>,
+  onClass?: (id: string, className: string) => void,
 ): string | null {
-  const match = token.trim().match(NODE_RE)
+  // Inline class syntax: `a[Label]:::className`.
+  let className: string | undefined
+  const stripped = token.trim().replace(/:::([A-Za-z0-9_-]+)$/, (_, name) => {
+    className = name
+    return ""
+  })
+  const match = stripped.trim().match(NODE_RE)
   if (!match) return null
   const [, id, bracket, rawLabel] = match
   const existing = nodes.get(id)
@@ -76,6 +146,7 @@ function takeNode(
     existing.label = label
     if (bracket) existing.shape = nodeShape(bracket)
   }
+  if (className) onClass?.(id, className)
   return id
 }
 
@@ -100,13 +171,39 @@ export function parseMermaidFlowchart(source: string): ParsedDiagram | null {
 
   const nodes = new Map<string, ParsedNode>()
   const edges: ParsedEdge[] = []
+  const classColors = new Map<string, CanvasColor>()
+  const pendingClassUses: { ids: string[]; className: string }[] = []
+  const fillOf = (styles: string): CanvasColor | undefined => {
+    const value = styles.match(/(?:fill|stroke)\s*:\s*([^,;\s]+)/i)?.[1]
+    return value ? nearestCanvasColor(value) : undefined
+  }
   for (const line of lines.slice(1)) {
-    // Structure and styling directives we don't render — skip, don't fail.
-    if (
-      /^(subgraph\b|end$|classDef\b|class\b|style\b|linkStyle\b|click\b|direction\b)/i.test(
-        line,
-      )
-    ) {
+    // Color directives are honored (fill snapped to the canvas palette);
+    // remaining structure/styling directives are skipped, never fatal.
+    const styleDirective = line.match(/^style\s+([A-Za-z0-9_.-]+)\s+(.+)$/i)
+    if (styleDirective) {
+      const color = fillOf(styleDirective[2])
+      const node = nodes.get(styleDirective[1])
+      if (color && node) node.color = color
+      continue
+    }
+    const classDef = line.match(/^classDef\s+([A-Za-z0-9_-]+)\s+(.+)$/i)
+    if (classDef) {
+      const color = fillOf(classDef[2])
+      if (color) classColors.set(classDef[1], color)
+      continue
+    }
+    const classUse = line.match(
+      /^class\s+([A-Za-z0-9_.,\s-]+)\s+([A-Za-z0-9_-]+)$/i,
+    )
+    if (classUse) {
+      pendingClassUses.push({
+        ids: classUse[1].split(",").map((s) => s.trim()),
+        className: classUse[2],
+      })
+      continue
+    }
+    if (/^(subgraph\b|end$|linkStyle\b|click\b|direction\b)/i.test(line)) {
       continue
     }
     // A chain like `a --> b -->|label| c`: node tokens sit between
@@ -117,8 +214,10 @@ export function parseMermaidFlowchart(source: string): ParsedDiagram | null {
     let prev: string | null = null
     let pendingLabel: string | undefined
     let sawConnector = false
+    const onClass = (id: string, className: string) =>
+      pendingClassUses.push({ ids: [id], className })
     const link = (token: string) => {
-      const id = takeNode(token, nodes)
+      const id = takeNode(token, nodes, onClass)
       if (id === null) return
       if (prev !== null) {
         edges.push({ from: prev, to: id, label: pendingLabel })
@@ -135,10 +234,20 @@ export function parseMermaidFlowchart(source: string): ParsedDiagram | null {
       match = CONNECTOR_RE.exec(line)
     }
     if (!sawConnector) {
-      takeNode(line, nodes)
+      takeNode(line, nodes, onClass)
       continue
     }
     link(line.slice(cursor).trim())
+  }
+
+  // Applied after the walk: classDef may appear before or after its uses.
+  for (const use of pendingClassUses) {
+    const color = classColors.get(use.className)
+    if (!color) continue
+    for (const id of use.ids) {
+      const node = nodes.get(id)
+      if (node) node.color = color
+    }
   }
 
   if (nodes.size === 0) return null
@@ -215,6 +324,8 @@ export function expandDiagram(
       w: placed.width,
       h: placed.height,
       label: node.label,
+      color: node.color,
+      fill: node.color ? "semi" : undefined,
     })
   }
   for (const edge of parsed.edges) {

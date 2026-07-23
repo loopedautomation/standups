@@ -174,6 +174,34 @@ describe("buildCanvasRecords", () => {
     expect(arrows).toHaveLength(2)
   })
 
+  it("redraws an edited diagram in place instead of duplicating it", () => {
+    const first = build([
+      {
+        op: "diagram",
+        id: "arch",
+        mermaid: "flowchart TD\n web[Web] --> api[API]",
+      },
+      // A bystander shape to the right, so free-space placement would move.
+      { op: "rect", id: "note", x: 900, y: 0, w: 120, h: 60, label: "Note" },
+    ])
+    const webBefore = elementOf(first.changes, "agent-arch_web")
+    const second = build(
+      [
+        {
+          op: "diagram",
+          id: "arch",
+          mermaid: "flowchart TD\n web[Web] --> api[API]\n api --> db[DB]",
+        },
+      ],
+      first.changes,
+    )
+    const webAfter = elementOf(second.changes, "agent-arch_web")
+    // Same node id, same spot — the diagram grew in place.
+    expect(webAfter.x).toBe(webBefore.x)
+    expect(webAfter.y).toBe(webBefore.y)
+    expect(elementOf(second.changes, "agent-arch_db")).toBeDefined()
+  })
+
   it("warns instead of failing on unparseable diagram source", () => {
     const { changes, warnings } = build([
       { op: "diagram", id: "bad", mermaid: "sequenceDiagram\nA->>B: hi" },
