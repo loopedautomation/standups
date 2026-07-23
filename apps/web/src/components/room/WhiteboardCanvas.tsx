@@ -183,6 +183,13 @@ export function WhiteboardCanvas({ slug }: { slug: string }) {
       ) {
         continue
       }
+      // A cache tombstone with a still-live scene element is a remote
+      // delete/clear the editor hasn't applied yet — re-authoring it here
+      // would resurrect the shape with a fresher LWW clock and the delete
+      // would silently lose. Skip it; the scene rebuild drops it next.
+      if (cached?.isDeleted === true && element.isDeleted !== true) {
+        continue
+      }
       // Version churn without a content change is Excalidraw's own
       // bookkeeping (fractional-index assignment on restore, binding
       // repairs): fold it into the cache but don't re-author the element —
