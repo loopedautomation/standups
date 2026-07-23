@@ -331,6 +331,15 @@ export function describeAgentControl(
   }
 }
 
+/**
+ * A composing agent re-announces itself on this cadence so a live "typing…"
+ * never expires mid-thought, and a crashed one's indicator self-clears.
+ */
+export const TYPING_HEARTBEAT_MS = 4_000
+/** Drop a typing indicator this long after its last heartbeat. Must exceed
+ * TYPING_HEARTBEAT_MS so a still-composing agent is never pruned. */
+export const TYPING_STALE_MS = 10_000
+
 /** Events published by the bridge on the `agent-activity` data topic. */
 export const agentActivityEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -358,6 +367,15 @@ export const agentActivityEventSchema = z.discriminatedUnion("type", [
     type: z.literal("status"),
     agentId: z.string(),
     state: agentStateSchema,
+    at: z.number(),
+  }),
+  // The agent is composing a chat reply (or has just finished). Transient
+  // presence, not a logged step — clients show a "typing…" indicator and
+  // never fold it into the activity feed.
+  z.object({
+    type: z.literal("typing"),
+    agentId: z.string(),
+    typing: z.boolean(),
     at: z.number(),
   }),
   // "Stats for nerds": the agent's pipeline configuration plus rolling

@@ -10,6 +10,7 @@ import {
   docPresenceSchema,
   parseParticipantMeta,
   sharedDocSchema,
+  TYPING_STALE_MS,
 } from "@meet/shared"
 import { RoomEvent } from "livekit-client"
 import { useEffect } from "react"
@@ -31,7 +32,10 @@ import {
 import {
   addAgentActivity,
   addChatMessage,
+  clearAgentTyping,
+  pruneTypingAgents,
   resetRoomData,
+  setAgentTyping,
 } from "@/stores/roomData"
 
 /** Always-mounted subscriber: chat and agent activity survive panel toggling. */
@@ -55,6 +59,9 @@ export function RoomDataListener({ slug }: { slug: string }) {
             }
           : parsed.data,
       )
+      // The message landing is itself the end of composing, so clear any
+      // lingering "typing…" for its sender even if the stop signal is in flight.
+      if (msg.from) clearAgentTyping(msg.from.identity)
     } catch {}
   })
 
@@ -66,7 +73,19 @@ export function RoomDataListener({ slug }: { slug: string }) {
       const parsed = agentActivityEventSchema.safeParse(
         JSON.parse(new TextDecoder().decode(msg.payload)),
       )
-      if (parsed.success) addAgentActivity(parsed.data)
+      if (!parsed.success) return
+      // Typing is transient presence keyed by the real sender, not a logged
+      // step — route it to the indicator rather than the activity feed.
+      if (parsed.data.type === "typing") {
+        setAgentTyping(
+          msg.from.identity,
+          msg.from.name || msg.from.identity,
+          parsed.data.typing,
+          parsed.data.at,
+        )
+        return
+      }
+      addAgentActivity(parsed.data)
     } catch {}
   })
 
@@ -147,15 +166,28 @@ export function RoomDataListener({ slug }: { slug: string }) {
   })
 
   // A dropped connection never sends a "left the editor" message, so the
-  // cursor is cleared when the participant itself goes away.
+  // cursor and any "typing…" are cleared when the participant itself goes away.
   useEffect(() => {
-    const onLeave = (participant: { identity: string }) =>
+    const onLeave = (participant: { identity: string }) => {
       removeDocPresence(participant.identity)
+      clearAgentTyping(participant.identity)
+    }
     room.on(RoomEvent.ParticipantDisconnected, onLeave)
     return () => {
       room.off(RoomEvent.ParticipantDisconnected, onLeave)
     }
   }, [room])
+
+  // Safety net for a "typing…" whose stop signal never arrived (crashed
+  // worker, dropped packet): a live agent re-heartbeats within the window, so
+  // anything older than the stale threshold is genuinely gone.
+  useEffect(() => {
+    const timer = setInterval(
+      () => pruneTypingAgents(TYPING_STALE_MS),
+      TYPING_STALE_MS / 2,
+    )
+    return () => clearInterval(timer)
+  }, [])
 
   // Data messages only reach people already in the room, so the document has
   // to be fetched once on arrival — otherwise everyone who joins after the
