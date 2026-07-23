@@ -32,6 +32,9 @@ export const UPDATE_DOC_TOOL = "update_shared_doc"
 /** The tool the realtime model calls to look at the shared screen. */
 export const LOOK_TOOL = "look_at_screen"
 
+/** The tool the realtime model calls to leave the meeting on request. */
+export const LEAVE_TOOL = "leave_meeting"
+
 /** The tools the realtime model calls to read and draw on the whiteboard. */
 export const READ_CANVAS_TOOL = "read_canvas"
 export const DRAW_CANVAS_TOOL = "draw_on_canvas"
@@ -110,6 +113,8 @@ export type RealtimeSessionOptions = {
    * can't promise a look it cannot take.
    */
   lookAtScreen?: () => Promise<string>
+  /** Leave the meeting on request; removal happens shortly after. */
+  leaveMeeting?: () => void
   /** Speak these 24 kHz mono PCM16 bytes into the room. */
   onAudio: (pcm: Uint8Array) => void
   /** The human started talking over us — cut off whatever is still playing. */
@@ -171,7 +176,12 @@ export type ToolDeclaration = {
 export function toolDeclarations(
   opts: Pick<
     RealtimeSessionOptions,
-    "readDoc" | "updateDoc" | "readCanvas" | "drawCanvas" | "lookAtScreen"
+    | "readDoc"
+    | "updateDoc"
+    | "readCanvas"
+    | "drawCanvas"
+    | "lookAtScreen"
+    | "leaveMeeting"
   >,
 ): ToolDeclaration[] {
   return [
@@ -313,6 +323,19 @@ export function toolDeclarations(
               "a moment, so say something short first ('let me look'). " +
               "Each call sees the screen as it is at that moment: call it " +
               "again rather than relying on what you saw earlier.",
+            parameters: { type: "object", properties: {} },
+          },
+        ]
+      : []),
+    ...(opts.leaveMeeting
+      ? [
+          {
+            name: LEAVE_TOOL,
+            description:
+              "Leave the meeting. Call this ONLY when someone asks you to " +
+              "leave, go, or show yourself out. Say a brief goodbye FIRST, " +
+              "then call it — you'll be disconnected moments later. Never " +
+              "call it on your own initiative.",
             parameters: { type: "object", properties: {} },
           },
         ]
@@ -517,6 +540,11 @@ export class RealtimeSession implements VoiceSession {
           )
         } else if (event.name === LOOK_TOOL) {
           void this.#lookAtScreen(String(event.call_id))
+        } else if (event.name === LEAVE_TOOL) {
+          void this.#docTool(String(event.call_id), async () => {
+            this.#opts.leaveMeeting?.()
+            return "You're leaving the meeting now — say nothing further."
+          })
         } else {
           void this.#delegate({
             call_id: String(event.call_id),

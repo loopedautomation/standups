@@ -143,6 +143,8 @@ export async function runRealtimeAgent(opts: {
   onChatMention?: (
     message: ChatMessage & { fromName: string },
   ) => Promise<string | null>
+  /** Leave the meeting on request (asked aloud or in chat). */
+  leaveMeeting?: () => Promise<void>
   /** Meeting context (roster, prior transcript) folded into instructions. */
   context?: string
   /** Fed what the agent said aloud, for the brain's record of the meeting. */
@@ -477,6 +479,9 @@ export async function runRealtimeAgent(opts: {
     updateDoc,
     readCanvas,
     drawCanvas: drawOnCanvas,
+    leaveMeeting: opts.leaveMeeting
+      ? () => void opts.leaveMeeting?.()
+      : undefined,
     onAgentSpoke: opts.onSpoke,
     // Offered only when a look could actually succeed. A webhook brain
     // drops images on the floor, so an agent on one must not be told it

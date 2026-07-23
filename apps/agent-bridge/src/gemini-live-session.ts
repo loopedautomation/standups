@@ -16,6 +16,7 @@ import {
   CHAT_TOOL,
   DELEGATE_TOOL,
   DRAW_CANVAS_TOOL,
+  LEAVE_TOOL,
   LOOK_TOOL,
   READ_CANVAS_TOOL,
   READ_DOC_TOOL,
@@ -339,6 +340,12 @@ export class GeminiLiveSession implements VoiceSession {
             (await this.#opts.lookAtScreen?.()) ??
             "You can't see the screen right now.",
         )
+        break
+      case LEAVE_TOOL:
+        void this.#docTool(call, async () => {
+          this.#opts.leaveMeeting?.()
+          return "You're leaving the meeting now — say nothing further."
+        })
         break
       case DELEGATE_TOOL:
         void this.#delegate(call)

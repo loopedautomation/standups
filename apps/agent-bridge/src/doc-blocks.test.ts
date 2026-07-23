@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  ChatOpsBlockExtractor,
   DOC_BLOCK_CLOSE,
   DOC_BLOCK_OPEN,
   DocBlockExtractor,
+  extractLeaveMarker,
+  parseChatOpsBlock,
 } from "./doc-blocks.js"
 
 describe("DocBlockExtractor", () => {
@@ -68,5 +71,43 @@ describe("DocBlockExtractor", () => {
     const out = extractor.feed(`${DOC_BLOCK_OPEN}\nhalf a doc`)
     expect(out.blocks).toEqual([])
     expect(out.spoken).toBe("")
+  })
+})
+
+describe("chat ops blocks", () => {
+  it("parses a valid edit/delete batch", () => {
+    const parsed = parseChatOpsBlock(
+      '[{"op":"edit","id":"echo-1","text":"fixed"},{"op":"delete","id":"echo-2"}]',
+    )
+    expect("ops" in parsed && parsed.ops).toHaveLength(2)
+  })
+
+  it("returns prose errors for junk, not exceptions", () => {
+    expect(parseChatOpsBlock("not json")).toHaveProperty("error")
+    expect(
+      parseChatOpsBlock('[{"op":"edit","id":"x"}]'), // edit without text
+    ).toHaveProperty("error")
+    expect(parseChatOpsBlock("[]")).toHaveProperty("error")
+  })
+
+  it("extracts blocks from a reply via the marker extractor", () => {
+    const out = new ChatOpsBlockExtractor().feed(
+      `Deleting that.\n<<<CHATOPS\n[{"op":"delete","id":"a"}]\nCHATOPS>>>`,
+    )
+    expect(out.blocks).toHaveLength(1)
+    expect(out.spoken.trim()).toBe("Deleting that.")
+  })
+})
+
+describe("leave marker", () => {
+  it("lifts the marker and reports it", () => {
+    const { text, leave } = extractLeaveMarker("Goodbye everyone!\n<<<LEAVE>>>")
+    expect(leave).toBe(true)
+    expect(text).toBe("Goodbye everyone!")
+  })
+
+  it("is inert when absent or embedded mid-line", () => {
+    expect(extractLeaveMarker("just talking").leave).toBe(false)
+    expect(extractLeaveMarker("about <<<LEAVE>>> markers").leave).toBe(false)
   })
 })

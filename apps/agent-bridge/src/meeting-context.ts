@@ -109,6 +109,29 @@ export async function persistSharedDoc(
   }
 }
 
+/**
+ * Ask the control API to remove this agent from the room — the same
+ * server-side removal a host's "remove" uses, so the departure is clean
+ * (tile drops, job ends) rather than a half-disconnected participant.
+ */
+export async function requestAgentRemoval(
+  room: string,
+  agentId: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/agents/${encodeURIComponent(agentId)}`,
+      {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}` },
+      },
+    )
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 /** The room's shared whiteboard. Empty on any failure. */
 export async function fetchCanvas(room: string): Promise<CanvasSnapshot> {
   try {

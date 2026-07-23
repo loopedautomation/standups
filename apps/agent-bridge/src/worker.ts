@@ -61,7 +61,16 @@ import {
 } from "./canvas-blocks.js"
 import { buildCanvasRecords } from "./canvas-records.js"
 import { controlAllowed } from "./control-auth.js"
-import { DOC_PROTOCOL_NOTE, DocBlockExtractor } from "./doc-blocks.js"
+import {
+  type AgentChatOp,
+  CHAT_OPS_PROTOCOL_NOTE,
+  ChatOpsBlockExtractor,
+  DOC_PROTOCOL_NOTE,
+  DocBlockExtractor,
+  extractLeaveMarker,
+  LEAVE_PROTOCOL_NOTE,
+  parseChatOpsBlock,
+} from "./doc-blocks.js"
 import {
   dynamicAgentsPublicOnly,
   getDynamicAgent,
@@ -81,6 +90,7 @@ import {
   postCanvasDiff,
   postDebugEvent,
   pushBounded,
+  requestAgentRemoval,
   seedSharedDoc,
   withMeetingContext,
 } from "./meeting-context.js"
@@ -306,6 +316,9 @@ export default defineAgent({
         })
         .catch(() => undefined)
     }
+    // The agent's own recent chat messages, so the brain can refer back to
+    // them — and edit or delete them via chat-ops blocks.
+    const recentChat: { id: string; text: string }[] = []
     const publishChat = (text: string) => {
       const message: ChatMessage = {
         id: `${entry.id}-${Date.now()}`,
@@ -314,12 +327,51 @@ export default defineAgent({
         text,
         at: Date.now(),
       }
+      recentChat.push({ id: message.id, text })
+      if (recentChat.length > 8) recentChat.shift()
       local
         .publishData(new TextEncoder().encode(JSON.stringify(message)), {
           reliable: true,
           topic: DataTopic.Chat,
         })
         .catch(() => undefined)
+    }
+
+    /**
+     * Edit/delete one of the agent's own messages, exactly as a person
+     * does: a chat op on the chat topic, authorized on every client by the
+     * sender being the message's author. Restricted to ids in recentChat —
+     * the brain must not even attempt to touch someone else's message.
+     */
+    const publishChatOp = (op: AgentChatOp): string => {
+      const own = recentChat.find((m) => m.id === op.id)
+      if (!own) return `"${op.id}" isn't one of your recent messages.`
+      const wire =
+        op.op === "edit"
+          ? { op: "edit" as const, id: op.id, text: op.text, at: Date.now() }
+          : { op: "delete" as const, id: op.id, at: Date.now() }
+      if (op.op === "edit") own.text = op.text
+      else recentChat.splice(recentChat.indexOf(own), 1)
+      local
+        .publishData(new TextEncoder().encode(JSON.stringify(wire)), {
+          reliable: true,
+          topic: DataTopic.Chat,
+        })
+        .catch(() => undefined)
+      return op.op === "edit" ? `edited ${op.id}` : `deleted ${op.id}`
+    }
+
+    /** Leave on request: goodbye first, then a clean server-side removal. */
+    const leaveMeeting = async () => {
+      postDebugEvent(
+        roomName,
+        `agent:${entry.id}`,
+        "info",
+        "leaving on request",
+      )
+      // Let the goodbye reach speakers/chat before the tile drops.
+      await sleep(2000)
+      await requestAgentRemoval(roomName, entry.id)
     }
 
     // "typing…" while the agent composes a chat reply. A heartbeat keeps a
@@ -591,6 +643,8 @@ export default defineAgent({
       // ordinary replies in one.
       entry.realtime ? "" : DOC_PROTOCOL_NOTE,
       entry.realtime ? "" : CANVAS_PROTOCOL_NOTE,
+      // Realtime agents leave via their leave_meeting tool instead.
+      entry.realtime ? "" : LEAVE_PROTOCOL_NOTE,
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -691,9 +745,18 @@ export default defineAgent({
     const replyInChat = async (
       message: ChatMessage,
     ): Promise<string | null> => {
+      // The brain sees its own recent messages by id, so "delete that" and
+      // "fix the typo" resolve to concrete chat ops.
+      const ownChat = recentChat.length
+        ? `\n[Your recent chat messages — ${recentChat
+            .map((m) => `(id ${m.id}) "${m.text.slice(0, 80)}"`)
+            .join(
+              ", ",
+            )}]\n[${CHAT_OPS_PROTOCOL_NOTE}]\n[${LEAVE_PROTOCOL_NOTE}]`
+        : `\n[${LEAVE_PROTOCOL_NOTE}]`
       const { text: input, images } = await attachScreenFrame(
         screen,
-        `${message.fromName} (in the meeting chat — reply concisely, your reply appears in the chat): ${message.text}`,
+        `${message.fromName} (in the meeting chat — reply concisely, your reply appears in the chat): ${message.text}${ownChat}`,
       )
       setState(sessionState.muted ? "muted" : "thinking")
       setTyping(true)
@@ -737,9 +800,8 @@ export default defineAgent({
             at: Date.now(),
           })
         }
-        const { spoken, blocks: drawings } = new CanvasBlockExtractor().feed(
-          afterDocs,
-        )
+        const { spoken: afterCanvas, blocks: drawings } =
+          new CanvasBlockExtractor().feed(afterDocs)
         for (const block of drawings) {
           const outcome = await drawCanvasBlock(block)
           publishActivity({
@@ -751,14 +813,41 @@ export default defineAgent({
             at: Date.now(),
           })
         }
+        // Edits/deletes of the agent's own messages ride the same way.
+        const { spoken: afterChatOps, blocks: chatOpsBlocks } =
+          new ChatOpsBlockExtractor().feed(afterCanvas)
+        let opsApplied = 0
+        for (const block of chatOpsBlocks) {
+          const parsed = parseChatOpsBlock(block)
+          const outcomes =
+            "error" in parsed
+              ? [parsed.error]
+              : parsed.ops.map((op) => {
+                  const outcome = publishChatOp(op)
+                  if (/^(edited|deleted)/.test(outcome)) opsApplied++
+                  return outcome
+                })
+          publishActivity({
+            type: "tool_result",
+            agentId: entry.id,
+            name: "chat_message_ops",
+            content: outcomes.join(" "),
+            durationMs: 0,
+            at: Date.now(),
+          })
+        }
+        const { text: spoken, leave } = extractLeaveMarker(afterChatOps)
         const posted = spoken.trim()
           ? spoken.trim()
           : docs.length
             ? "(I've updated the shared document.)"
             : drawings.length
               ? "(I've drawn on the whiteboard.)"
-              : null
+              : opsApplied || leave
+                ? null
+                : null
         if (posted) publishChat(posted)
+        if (leave) void leaveMeeting()
         return posted
       } catch (err) {
         const busy = err instanceof Error && /in progress/.test(err.message)
@@ -893,6 +982,7 @@ export default defineAgent({
         // tools, memory, and marker blocks (doc edits, drawings) can answer
         // a chat request; the voice model only gets told what was said.
         onChatMention: replyInChat,
+        leaveMeeting,
         onSpoke: (text) =>
           pushBounded(heardSince, `${entry.name} (you, aloud): ${text}`),
       })
@@ -914,6 +1004,7 @@ export default defineAgent({
         setState,
         writeDoc: publishDoc,
         drawCanvas: drawCanvasBlock,
+        leave: () => void leaveMeeting(),
       },
       screen,
       { roster: () => describeRoster(ctx.room) },

@@ -7,7 +7,7 @@ import {
   type TurnPolicy,
 } from "@meet/shared"
 import { CanvasBlockExtractor } from "./canvas-blocks.js"
-import { DocBlockExtractor } from "./doc-blocks.js"
+import { DocBlockExtractor, extractLeaveMarker } from "./doc-blocks.js"
 import type { TtyServerFrame } from "./looped-tty.js"
 import type { Brain } from "./looped-webhook.js"
 import type { AgentEntry } from "./registry.js"
@@ -30,6 +30,8 @@ export type BridgeCallbacks = {
    * path has its own draw_on_canvas tool instead.
    */
   drawCanvas?: (block: string) => Promise<string>
+  /** Leave the meeting on request (spoken "please show yourself out"). */
+  leave?: () => void
 }
 
 /** Mutable per-session flags shared between the voice agent and the job. */
@@ -240,6 +242,13 @@ export class LoopedVoiceAgent extends voice.Agent {
         /** Route reply text: lift marker blocks out, speak (or chat) the rest. */
         function speakOrSave(raw: string) {
           let content = raw
+          {
+            // A leave marker anywhere in the reply: say the goodbye around
+            // it, then go.
+            const { text, leave } = extractLeaveMarker(content)
+            content = text
+            if (leave) callbacks.leave?.()
+          }
           if (docBlocks) {
             const { spoken, blocks } = docBlocks.feed(content)
             for (const doc of blocks) saveDoc(doc)
