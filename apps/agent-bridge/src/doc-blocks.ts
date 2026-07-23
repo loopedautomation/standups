@@ -1,9 +1,10 @@
-// The pipeline path's doc-write channel. A pipeline brain speaks over the
+// The pipeline path's write channels. A pipeline brain speaks over the
 // TTY protocol — plain text frames, no bridge-side tools — so it can't call
 // a doc tool the way realtime models do (realtime-session's
-// update_shared_doc). Instead the brain embeds the updated document in its
-// reply between marker lines, and the bridge lifts the block out before the
-// text reaches TTS or chat, persisting it like any other doc write.
+// update_shared_doc). Instead the brain embeds writes in its reply between
+// marker lines, and the bridge lifts each block out before the text reaches
+// TTS or chat. This file owns the generic extractor and the shared-doc
+// protocol; canvas-blocks.ts speaks the same way for the whiteboard.
 
 export const DOC_BLOCK_OPEN = "<<<DOC"
 export const DOC_BLOCK_CLOSE = "DOC>>>"
@@ -25,35 +26,49 @@ export const DOC_PROTOCOL_NOTE =
   "the document back."
 
 /**
- * Splits a brain's streamed reply into text to speak and documents to save.
- * Stateful across `feed` calls because a block may open in one assistant
- * frame and close in a later one; a block still open when the turn ends is
- * discarded (a barge-in can cut the brain off mid-document, and saving the
- * truncated half would clobber the real doc).
+ * Splits a brain's streamed reply into text to speak and marker blocks to
+ * act on. Stateful across `feed` calls because a block may open in one
+ * assistant frame and close in a later one; a block still open when the turn
+ * ends is discarded (a barge-in can cut the brain off mid-block, and acting
+ * on the truncated half would do the wrong thing).
  */
-export class DocBlockExtractor {
+export class MarkerBlockExtractor {
+  #open: string
+  #close: string
   #inBlock = false
-  #docLines: string[] = []
+  #blockLines: string[] = []
 
-  feed(content: string): { spoken: string; docs: string[] } {
+  constructor(open: string, close: string) {
+    this.#open = open
+    this.#close = close
+  }
+
+  feed(content: string): { spoken: string; blocks: string[] } {
     const spokenLines: string[] = []
-    const docs: string[] = []
+    const blocks: string[] = []
     for (const line of content.split("\n")) {
       if (!this.#inBlock) {
-        if (line.trim() === DOC_BLOCK_OPEN) {
+        if (line.trim() === this.#open) {
           this.#inBlock = true
-          this.#docLines = []
+          this.#blockLines = []
         } else {
           spokenLines.push(line)
         }
-      } else if (line.trim() === DOC_BLOCK_CLOSE) {
+      } else if (line.trim() === this.#close) {
         this.#inBlock = false
-        docs.push(this.#docLines.join("\n"))
-        this.#docLines = []
+        blocks.push(this.#blockLines.join("\n"))
+        this.#blockLines = []
       } else {
-        this.#docLines.push(line)
+        this.#blockLines.push(line)
       }
     }
-    return { spoken: spokenLines.join("\n"), docs }
+    return { spoken: spokenLines.join("\n"), blocks }
+  }
+}
+
+/** The doc-write channel: marker blocks carrying the full updated document. */
+export class DocBlockExtractor extends MarkerBlockExtractor {
+  constructor() {
+    super(DOC_BLOCK_OPEN, DOC_BLOCK_CLOSE)
   }
 }

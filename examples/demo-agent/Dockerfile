@@ -12,6 +12,8 @@ RUN apk add --no-cache curl tar \
 # (e.g. Coolify) that pre-create mount sources as directories.
 FROM ghcr.io/loopedautomation/agent:latest
 COPY examples/demo-agent/agent.yaml /agent/agent.yaml
+# Meet's first-party skills, referenced by agent.yaml relative to itself.
+COPY skills /agent/skills
 COPY --from=infisical /usr/local/bin/infisical /usr/local/bin/infisical
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # Wraps the base image's launch command with `infisical run` when credentials

@@ -279,13 +279,19 @@ export function toolDeclarations(
               "Draw on the meeting's shared whiteboard, which everyone can " +
               "see live. Send a batch of simple operations: rectangles, " +
               "ellipses, sticky notes, text, freehand lines, and arrows " +
-              "that connect shapes by id. Coordinates are page pixels: lay " +
-              "diagrams out left-to-right or top-down starting near (0,0) " +
-              "on roughly a 1600x1000 area, size boxes around 160x80, and " +
-              "leave ~80px gaps. Omit x/y to auto-place a shape in free " +
-              "space; every result reports where each shape landed — use " +
-              "those positions when placing the next ones, never reuse the " +
-              "same spot. Give every shape a short memorable id " +
+              "that connect shapes by id. Coordinates are page pixels with " +
+              "y growing DOWNWARD from the top-left origin: lay diagrams " +
+              "out left-to-right or top-down starting near (0,0) on " +
+              "roughly a 1600x1000 area, size boxes around 160x80, and " +
+              "leave ~80px gaps. For charts and aligned layouts compute " +
+              "positions with arithmetic, never by eye: bars on a shared " +
+              "baseline all end at the same y+h, so a taller bar starts at " +
+              "a SMALLER y; draw the axes from that same baseline. Placing " +
+              "a shape inside a larger frame is fine. Omit x/y to " +
+              "auto-place a loose shape in free space; every result " +
+              "reports where each shape landed — use those positions when " +
+              "placing the next ones, never reuse the same spot. Give " +
+              "every shape a short memorable id " +
               "(e.g. 'api') so you can connect, move or update it later. " +
               "Build complex diagrams incrementally across several calls " +
               "while you talk — draw a part, say what it is, draw the " +

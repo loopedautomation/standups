@@ -23,6 +23,11 @@ triggers:
     port: 8300
     token_env: SCOUT_TTY_TOKEN
 
+# Meet's first-party skills (repo-root skills/, baked in by the Dockerfile).
+# whiteboard: how to draw well on the meeting's shared whiteboard.
+skills:
+  - ./skills/whiteboard.md
+
 permissions:
   net: [api.anthropic.com, en.wikipedia.org, www.google.com, duckduckgo.com]
 

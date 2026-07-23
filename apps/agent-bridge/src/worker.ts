@@ -21,13 +21,16 @@ import {
   type CanvasDiff,
   type CanvasOp,
   type CanvasPresence,
+  type CanvasRecord,
   type ChatMessage,
+  canvasDiffSchema,
   chatMessageSchema,
   chunkCanvasChanges,
   DataTopic,
   type DocPresence,
   docCursorColor,
   mentionsName,
+  mergeCanvasRecord,
   type ParticipantMeta,
   parseParticipantMeta,
   type SharedDoc,
@@ -45,6 +48,11 @@ import {
 } from "./agent-presence.js"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
+import {
+  CANVAS_PROTOCOL_NOTE,
+  CanvasBlockExtractor,
+  parseCanvasBlock,
+} from "./canvas-blocks.js"
 import { buildCanvasRecords } from "./canvas-records.js"
 import { controlAllowed } from "./control-auth.js"
 import { DOC_PROTOCOL_NOTE, DocBlockExtractor } from "./doc-blocks.js"
@@ -419,6 +427,20 @@ export default defineAgent({
       return "Saved. Everyone can see the updated document."
     }
 
+    // The worker's own view of the whiteboard, seeded at join and kept
+    // current from broadcast diffs and the agent's own draws. Exists so
+    // pipeline turns can describe the board synchronously (the context
+    // injector below can't await a fetch).
+    const canvasCache = new Map<string, CanvasRecord>()
+    const mergeIntoCanvasCache = (changes: CanvasRecord[]) => {
+      for (const change of changes) {
+        canvasCache.set(
+          change.id,
+          mergeCanvasRecord(canvasCache.get(change.id), change),
+        )
+      }
+    }
+
     /**
      * Draw on the shared whiteboard and tell the room, mirroring publishDoc:
      * persist first (so a client that reacts to the broadcast and refetches
@@ -426,10 +448,17 @@ export default defineAgent({
      * clients exchange among themselves.
      */
     const publishCanvasOps = async (ops: CanvasOp[]): Promise<string> => {
+      // Build against the store merged into the live cache, not the store
+      // alone: client snapshot PUTs trail their edits by seconds, and an
+      // agent drawing from that stale view both misplaces shapes and bases
+      // its LWW clocks low enough to revert a move or delete a person made
+      // moments ago. The cache has their broadcast diffs the instant they
+      // happen.
       const snapshot = await fetchCanvas(roomName)
+      mergeIntoCanvasCache(snapshot.records)
       const { changes, summary, warnings } = buildCanvasRecords(
         ops,
-        new Map(snapshot.records.map((r) => [r.id, r])),
+        canvasCache,
         { identity: `agent-${entry.id}`, name: entry.name },
       )
       if (changes.length === 0) {
@@ -444,6 +473,7 @@ export default defineAgent({
       if (!(await postCanvasDiff(roomName, diff))) {
         return "The drawing couldn't be saved."
       }
+      mergeIntoCanvasCache(changes)
       // The full batch is already durable; the room watches it appear shape
       // by shape, the agent's cursor gliding to each one first. Queued and
       // unawaited so the model keeps talking while its hand draws.
@@ -491,8 +521,13 @@ export default defineAgent({
       })
       return [summary, ...warnings].join(" ").trim()
     }
-    const readCanvas = async (): Promise<string> =>
-      formatCanvas(await fetchCanvas(roomName)) || "The whiteboard is empty."
+    const readCanvas = async (): Promise<string> => {
+      mergeIntoCanvasCache((await fetchCanvas(roomName)).records)
+      return (
+        formatCanvas({ records: [...canvasCache.values()] }) ||
+        "The whiteboard is empty."
+      )
+    }
 
     // Meeting context: what was said before the agent joined (from the
     // control API's transcript store) plus who's in the room. Wrapping the
@@ -500,7 +535,9 @@ export default defineAgent({
     // mention, or realtime ask_agent delegation.
     const priorTranscript = formatTranscript(await fetchTranscript(roomName))
     const priorDoc = formatSharedDoc(await fetchSharedDoc(roomName))
-    const priorCanvas = formatCanvas(await fetchCanvas(roomName))
+    const canvasSnapshot = await fetchCanvas(roomName)
+    mergeIntoCanvasCache(canvasSnapshot.records)
+    const priorCanvas = formatCanvas(canvasSnapshot)
     const meetingContext = [
       `Participants in the meeting when you joined: ${describeRoster(ctx.room)}.`,
       priorDoc,
@@ -514,10 +551,11 @@ export default defineAgent({
       priorTranscript
         ? `Transcript of the meeting before you joined:\n${priorTranscript}`
         : "",
-      // Realtime brains write the doc through the voice model's
-      // update_shared_doc tool instead; telling them about marker blocks
-      // would have them wrap ordinary replies in one.
+      // Realtime brains write the doc and canvas through the voice model's
+      // tools instead; telling them about marker blocks would have them wrap
+      // ordinary replies in one.
       entry.realtime ? "" : DOC_PROTOCOL_NOTE,
+      entry.realtime ? "" : CANVAS_PROTOCOL_NOTE,
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -535,6 +573,13 @@ export default defineAgent({
     // has no read tool, so without this it would rewrite from the stale copy
     // it saw at join time and clobber everything typed since.
     let docSince: SharedDoc | null = null
+    // Same for the whiteboard: who last drew since the brain's last turn
+    // (pipeline path only), so the fresh board rides into the next turn.
+    let canvasSinceBy: string | null = null
+    // Outcomes of the brain's own canvas blocks — where shapes landed,
+    // auto-placement nudges, validation errors. A marker block can't return
+    // a value mid-turn, so results ride into the next one.
+    const canvasOutcomes: string[] = []
     const brain = withMeetingContext(rawBrain, meetingContext, () => {
       const parts: string[] = []
       if (docSince) {
@@ -542,6 +587,21 @@ export default defineAgent({
           `[${docSince.byName || docSince.by} updated the shared document. ${formatSharedDoc(docSince)}]`,
         )
         docSince = null
+      }
+      const outcomes = canvasOutcomes.splice(0)
+      if (outcomes.length) {
+        parts.push(
+          `[Whiteboard results from your last turn:]\n${outcomes.join("\n")}`,
+        )
+      }
+      if (canvasSinceBy) {
+        parts.push(
+          `[${canvasSinceBy} drew on the whiteboard. ${
+            formatCanvas({ records: [...canvasCache.values()] }) ||
+            "The whiteboard is now empty."
+          }]`,
+        )
+        canvasSinceBy = null
       }
       const heard = heardSince.splice(0)
       if (heard.length) {
@@ -692,11 +752,32 @@ export default defineAgent({
     const endpointMinDelayMs =
       Number(process.env.PIPELINE_ENDPOINT_MIN_DELAY ?? 4) * 1000
 
+    /**
+     * A canvas marker block from the brain: validate, draw through the same
+     * path the realtime tool uses, and buffer the outcome (positions,
+     * auto-placement nudges, validation errors) for the brain's next turn.
+     */
+    const drawCanvasBlock = async (block: string): Promise<string> => {
+      const parsed = parseCanvasBlock(block)
+      const outcome =
+        "error" in parsed
+          ? `${parsed.error} Fix the block and try again.`
+          : await publishCanvasOps(parsed.ops)
+      pushBounded(canvasOutcomes, outcome)
+      return outcome
+    }
+
     const agent = new LoopedVoiceAgent(
       entry,
       brain,
       sessionState,
-      { publishActivity, publishChat, setState, writeDoc: publishDoc },
+      {
+        publishActivity,
+        publishChat,
+        setState,
+        writeDoc: publishDoc,
+        drawCanvas: drawCanvasBlock,
+      },
       screen,
       { roster: () => describeRoster(ctx.room) },
     )
@@ -935,6 +1016,19 @@ export default defineAgent({
         } catch {
           // ignore malformed doc messages
         }
+      } else if (topic === DataTopic.Canvas) {
+        // Someone else drew (clients and agents broadcast element diffs).
+        // Folded into the worker's cache so the brain's next turn can carry
+        // a fresh description of the board.
+        try {
+          const diff = canvasDiffSchema.parse(
+            JSON.parse(new TextDecoder().decode(payload)),
+          )
+          mergeIntoCanvasCache(diff.changes)
+          canvasSinceBy = sender?.name || sender?.identity || diff.fromName
+        } catch {
+          // ignore malformed canvas messages
+        }
       }
     })
 
@@ -974,9 +1068,10 @@ export default defineAgent({
             throw new Error(frame.error)
           }
         }
-        // A chat-asked doc edit comes back as a marker block too — save it
-        // and keep it out of the chat.
-        const { spoken, docs } = new DocBlockExtractor().feed(reply)
+        // Chat-asked doc edits and drawings come back as marker blocks too —
+        // act on them and keep them out of the chat.
+        const { spoken: afterDocs, blocks: docs } =
+          new DocBlockExtractor().feed(reply)
         for (const doc of docs) {
           const outcome = await publishDoc(doc)
           publishActivity({
@@ -988,8 +1083,25 @@ export default defineAgent({
             at: Date.now(),
           })
         }
+        const { spoken, blocks: drawings } = new CanvasBlockExtractor().feed(
+          afterDocs,
+        )
+        for (const block of drawings) {
+          const outcome = await drawCanvasBlock(block)
+          publishActivity({
+            type: "tool_result",
+            agentId: entry.id,
+            name: "draw_on_canvas",
+            content: outcome,
+            durationMs: 0,
+            at: Date.now(),
+          })
+        }
         if (spoken.trim()) publishChat(spoken.trim())
         else if (docs.length) publishChat("(I've updated the shared document.)")
+        else if (drawings.length) {
+          publishChat("(I've drawn on the whiteboard.)")
+        }
       } catch (err) {
         const busy = err instanceof Error && /in progress/.test(err.message)
         publishChat(

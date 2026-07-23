@@ -6,6 +6,7 @@ import {
   spokenMentionRegExp,
   type TurnPolicy,
 } from "@meet/shared"
+import { CanvasBlockExtractor } from "./canvas-blocks.js"
 import { DocBlockExtractor } from "./doc-blocks.js"
 import type { TtyServerFrame } from "./looped-tty.js"
 import type { Brain } from "./looped-webhook.js"
@@ -22,6 +23,13 @@ export type BridgeCallbacks = {
    * replies (see doc-blocks.ts); the realtime path has its own doc tools.
    */
   writeDoc?: (text: string) => Promise<string>
+  /**
+   * Draw on the shared whiteboard from a raw canvas marker block (see
+   * canvas-blocks.ts). Takes the unparsed block so validation errors flow
+   * back through the same outcome channel as successful draws; the realtime
+   * path has its own draw_on_canvas tool instead.
+   */
+  drawCanvas?: (block: string) => Promise<string>
 }
 
 /** Mutable per-session flags shared between the voice agent and the job. */
@@ -155,10 +163,14 @@ export class LoopedVoiceAgent extends voice.Agent {
     // A live screenshare rides along as a frame, so the agent can see it.
     const attached = await attachScreenFrame(this.#screen, text)
 
-    // Doc writes ride inside the reply as marker blocks (see doc-blocks.ts):
-    // lifted out here so they get saved instead of spoken. Extraction state
-    // lives per turn — a block left open by a barge-in dies with the stream.
+    // Doc and canvas writes ride inside the reply as marker blocks (see
+    // doc-blocks.ts / canvas-blocks.ts): lifted out here so they get acted
+    // on instead of spoken. Extraction state lives per turn — a block left
+    // open by a barge-in dies with the stream.
     const docBlocks = callbacks.writeDoc ? new DocBlockExtractor() : null
+    const canvasBlocks = callbacks.drawCanvas
+      ? new CanvasBlockExtractor()
+      : null
     const saveDoc = (text: string) => {
       const startedAt = Date.now()
       callbacks.publishActivity({
@@ -182,6 +194,29 @@ export class LoopedVoiceAgent extends voice.Agent {
           })
         })
     }
+    const drawBlock = (block: string) => {
+      const startedAt = Date.now()
+      callbacks.publishActivity({
+        type: "tool_call",
+        agentId: entry.id,
+        name: "draw_on_canvas",
+        arguments: "",
+        at: startedAt,
+      })
+      void callbacks
+        .drawCanvas?.(block)
+        .catch(() => "The drawing couldn't be saved.")
+        .then((content) => {
+          callbacks.publishActivity({
+            type: "tool_result",
+            agentId: entry.id,
+            name: "draw_on_canvas",
+            content: content ?? "",
+            durationMs: Date.now() - startedAt,
+            at: Date.now(),
+          })
+        })
+    }
 
     const iterator = brain.runTurn(attached.text, attached.images)
     return new ReadableStream<string>({
@@ -198,12 +233,17 @@ export class LoopedVoiceAgent extends voice.Agent {
           controller.error(err)
         }
 
-        /** Route reply text: lift doc blocks out, speak (or chat) the rest. */
+        /** Route reply text: lift marker blocks out, speak (or chat) the rest. */
         function speakOrSave(raw: string) {
           let content = raw
           if (docBlocks) {
-            const { spoken, docs } = docBlocks.feed(raw)
-            for (const doc of docs) saveDoc(doc)
+            const { spoken, blocks } = docBlocks.feed(content)
+            for (const doc of blocks) saveDoc(doc)
+            content = spoken
+          }
+          if (canvasBlocks) {
+            const { spoken, blocks } = canvasBlocks.feed(content)
+            for (const block of blocks) drawBlock(block)
             content = spoken
           }
           if (!content.trim()) return
