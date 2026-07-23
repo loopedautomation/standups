@@ -167,10 +167,6 @@ function applyMode(
   if (mode === "gemini") {
     return {
       ...entry,
-      // Gemini Live cannot be gated (it always auto-responds), so choosing
-      // it is also choosing an open floor — a gated registry policy would
-      // otherwise kill the job at startup.
-      turn_policy: "open",
       realtime:
         entry.realtime?.provider === "gemini"
           ? entry.realtime
@@ -869,7 +865,13 @@ export default defineAgent({
       // The brain's ears: every finalized utterance in the room (the room
       // transcriber's segments) lands in the heard buffer, so each brain
       // turn carries the conversation itself, not just the voice model's
-      // summary of it.
+      // summary of it. The realtime agent also subscribes — a gated Gemini
+      // session's mention detection runs on these finals.
+      const utteranceListeners: ((
+        identity: string,
+        name: string,
+        text: string,
+      ) => void)[] = []
       ctx.room.registerTextStreamHandler(
         TRANSCRIPTION_TOPIC,
         (reader, info) => {
@@ -883,10 +885,11 @@ export default defineAgent({
               const speaker = [...ctx.room.remoteParticipants.values()].find(
                 (p) => p.identity === info.identity,
               )
-              pushBounded(
-                heardSince,
-                `${speaker?.name || info.identity}: ${text}`,
-              )
+              const name = speaker?.name || info.identity
+              pushBounded(heardSince, `${name}: ${text}`)
+              for (const listener of utteranceListeners) {
+                listener(info.identity, name, text)
+              }
             } catch {
               // stream aborted mid-read; nothing to record
             }
@@ -983,6 +986,7 @@ export default defineAgent({
         // a chat request; the voice model only gets told what was said.
         onChatMention: replyInChat,
         leaveMeeting,
+        onUtterance: (fn) => utteranceListeners.push(fn),
         onSpoke: (text) =>
           pushBounded(heardSince, `${entry.name} (you, aloud): ${text}`),
       })

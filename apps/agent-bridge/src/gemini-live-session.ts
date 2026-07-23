@@ -6,10 +6,10 @@
 // Protocol differences that matter here:
 //  - input audio is 16 kHz PCM16 (output is 24 kHz, same as OpenAI)
 //  - tool call arguments arrive as objects, not JSON strings
-//  - the model always auto-responds to a completed turn; there is no
-//    create_response switch, so the deterministic turn gate the OpenAI
-//    session offers cannot be implemented — gated turn policies are
-//    rejected upstream for this provider.
+//  - there is no create_response switch, so gating works by disabling
+//    automatic activity detection instead (manual-turn mode): the bridge
+//    segments turns with its local VAD and only closes an activity when
+//    the gate allows a response — see realtime-agent's Gemini gate.
 
 import {
   CANCEL_TOOL,
@@ -96,16 +96,31 @@ export class GeminiLiveSession implements VoiceSession {
   /** True once any session completed setup — reconnects get a resume note. */
   #wasConnected = false
 
-  constructor(opts: RealtimeSessionOptions) {
+  /**
+   * Manual-turn mode: automatic activity detection disabled, so the model
+   * responds ONLY when the bridge closes an activity (sendTurnAudio) or
+   * completes a client-content turn. This is what makes Gemini gateable:
+   * a model that cannot decide a turn ended cannot decide to speak.
+   * Fixed per connection (it's a setup field); flipping an auto session to
+   * manual rides the reconnect machinery.
+   */
+  #manual: boolean
+  #gateOpen = false
+
+  constructor(
+    opts: RealtimeSessionOptions,
+    config?: { manualTurns?: boolean },
+  ) {
     this.#opts = opts
-    if (opts.gate) {
-      // Not silently: an agent configured to be gated but running ungated
-      // would speak when it was promised to stay silent.
-      throw new Error(
-        "Gemini Live has no deterministic turn gate; gated turn policies " +
-          "require the openai realtime provider",
-      )
-    }
+    this.#manual = config?.manualTurns ?? false
+  }
+
+  get gateOpen(): boolean {
+    return this.#gateOpen
+  }
+
+  get manualTurns(): boolean {
+    return this.#manual
   }
 
   get live(): boolean {
@@ -150,6 +165,15 @@ export class GeminiLiveSession implements VoiceSession {
           // Transcribe the model's own speech so the brain's meeting record
           // includes the agent's side of the conversation.
           outputAudioTranscription: {},
+          // Manual mode: the bridge segments turns and closes activities;
+          // the model never auto-responds to what it overhears.
+          ...(this.#manual
+            ? {
+                realtimeInputConfig: {
+                  automaticActivityDetection: { disabled: true },
+                },
+              }
+            : {}),
           tools: [{ functionDeclarations: toolDeclarations(this.#opts) }],
         },
       })
@@ -448,8 +472,51 @@ export class GeminiLiveSession implements VoiceSession {
     )
   }
 
-  /** No-op: Gemini Live cannot be gated (rejected in the constructor). */
-  setGateOpen(_open: boolean) {}
+  /**
+   * The gate itself lives in realtime-agent (mention detection runs on the
+   * room transcript there); this records the state its audio routing reads.
+   * Closing the gate on a session that started with automatic turn
+   * detection can't be honored in place — the VAD mode is a setup-time
+   * choice — so it flips to manual and rides the reconnect machinery.
+   */
+  setGateOpen(open: boolean) {
+    this.#gateOpen = open
+    if (!open && !this.#manual) {
+      this.#manual = true
+      if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.close()
+    }
+  }
+
+  /**
+   * Feed one detected human turn as an explicit activity — the ONLY path
+   * that lets the model respond to room audio in manual mode.
+   */
+  sendTurnAudio(pcm: Uint8Array) {
+    if (!pcm.length) return
+    this.#send({ realtimeInput: { activityStart: {} } })
+    // Chunked: one giant frame risks the server's message size limit.
+    const chunk = 32 * 1024
+    for (let i = 0; i < pcm.length; i += chunk) {
+      this.#send({
+        realtimeInput: {
+          audio: {
+            data: Buffer.from(pcm.subarray(i, i + chunk)).toString("base64"),
+            mimeType: `audio/pcm;rate=${GEMINI_INPUT_SAMPLE_RATE}`,
+          },
+        },
+      })
+    }
+    this.#send({ realtimeInput: { activityEnd: {} } })
+  }
+
+  /**
+   * Room speech the gate withheld, as text context — the model stays part
+   * of the conversation it isn't allowed to answer. No turnComplete, so
+   * this can never trigger a response.
+   */
+  notifyHeard(line: string) {
+    this.#sendUserText(line, false)
+  }
 
   /** A human called on the agent: give it the floor for one response. */
   callOn() {
@@ -479,6 +546,9 @@ export class GeminiLiveSession implements VoiceSession {
   /** Push 16 kHz mono PCM16 audio from the room into the session. */
   appendAudio(pcm: Uint8Array) {
     if (!pcm.length) return
+    // Manual mode: free-streamed audio belongs to no activity — turns
+    // arrive through sendTurnAudio instead.
+    if (this.#manual) return
     this.#send({
       realtimeInput: {
         audio: {
