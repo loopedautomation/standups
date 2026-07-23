@@ -181,6 +181,112 @@ describe("buildCanvasRecords", () => {
     expect(summary).toContain("3 shapes")
   })
 
+  it("reports where each shape landed so the model can lay out the next", () => {
+    const { summary } = build([
+      { op: "rect", id: "api", x: 120, y: 60, w: 160, h: 80, label: "API" },
+    ])
+    expect(summary).toContain('rect "API" (id api) at (120, 60)')
+  })
+
+  it("nudges a create that would bury an existing shape", () => {
+    const first = build([
+      { op: "rect", id: "api", x: 100, y: 100, w: 160, h: 80 },
+    ])
+    const second = build(
+      [{ op: "rect", id: "db", x: 100, y: 100, w: 160, h: 80 }],
+      first.changes,
+    )
+    const db = elementOf(second.changes, "agent-db")
+    // Slid clear of the blocker rather than stacking on top of it.
+    expect(db.x as number).toBeGreaterThanOrEqual(100 + 160)
+    expect(second.warnings.some((w) => w.includes("placed at"))).toBe(true)
+    expect(second.summary).toContain(`at (${db.x}, ${db.y})`)
+  })
+
+  it("cascades placement inside one batch of identical coordinates", () => {
+    const { changes, warnings } = build([
+      { op: "rect", id: "a", x: 0, y: 0, w: 160, h: 80 },
+      { op: "rect", id: "b", x: 0, y: 0, w: 160, h: 80 },
+      { op: "rect", id: "c", x: 0, y: 0, w: 160, h: 80 },
+    ])
+    const spots = ["agent-a", "agent-b", "agent-c"].map((id) => {
+      const el = elementOf(changes, id)
+      return `${el.x},${el.y}`
+    })
+    expect(new Set(spots).size).toBe(3)
+    expect(warnings).toHaveLength(2)
+  })
+
+  it("auto-places a create with omitted coordinates beside the content", () => {
+    const first = build([{ op: "rect", id: "api", x: 0, y: 40, w: 160, h: 80 }])
+    const second = build(
+      [{ op: "rect", id: "db", w: 160, h: 80 }],
+      first.changes,
+    )
+    const db = elementOf(second.changes, "agent-db")
+    expect(db.x as number).toBeGreaterThanOrEqual(160)
+    expect(db.y).toBe(40)
+    expect(second.warnings).toEqual([])
+  })
+
+  it("keeps a re-created shape in place when coordinates are omitted", () => {
+    const first = build([
+      { op: "rect", id: "api", x: 300, y: 200, w: 160, h: 80 },
+    ])
+    const second = build(
+      [{ op: "rect", id: "api", w: 200, h: 100, label: "API v2" }],
+      first.changes,
+    )
+    const rect = elementOf(second.changes, "agent-api")
+    expect(rect.x).toBe(300)
+    expect(rect.y).toBe(200)
+  })
+
+  it("never nudges a shape redrawn at its own position", () => {
+    const first = build([
+      { op: "rect", id: "api", x: 100, y: 100, w: 160, h: 80 },
+    ])
+    const second = build(
+      [{ op: "rect", id: "api", x: 100, y: 100, w: 160, h: 80, color: "red" }],
+      first.changes,
+    )
+    const rect = elementOf(second.changes, "agent-api")
+    expect(rect.x).toBe(100)
+    expect(second.warnings).toEqual([])
+  })
+
+  it("wraps to a fresh row when the current row is full", () => {
+    const first = build([{ op: "rect", id: "a", x: 0, y: 0, w: 1500, h: 80 }])
+    const second = build(
+      [{ op: "rect", id: "b", x: 0, y: 0, w: 1500, h: 80 }],
+      first.changes,
+    )
+    const b = elementOf(second.changes, "agent-b")
+    expect(b.y as number).toBeGreaterThanOrEqual(80)
+    expect(b.x).toBe(0)
+  })
+
+  it("leaves deliberate near-neighbours alone", () => {
+    const first = build([{ op: "rect", id: "a", x: 0, y: 0, w: 160, h: 80 }])
+    // 20px of overlap is a styling choice, not a burial.
+    const second = build(
+      [{ op: "rect", id: "b", x: 140, y: 0, w: 160, h: 80 }],
+      first.changes,
+    )
+    const b = elementOf(second.changes, "agent-b")
+    expect(b.x).toBe(140)
+    expect(second.warnings).toEqual([])
+  })
+
+  it("reports the destination of a move", () => {
+    const first = build([{ op: "rect", id: "api", x: 0, y: 0, w: 100, h: 80 }])
+    const second = build(
+      [{ op: "move", id: "api", x: 500, y: 300 }],
+      first.changes,
+    )
+    expect(second.summary).toContain("moved api to (500, 300)")
+  })
+
   it("keeps valid ops when one in the batch references nothing", () => {
     const { changes, warnings } = build([
       { op: "rect", id: "ok", x: 0, y: 0, w: 50, h: 50 },

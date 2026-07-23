@@ -123,6 +123,96 @@ function measure(text: string, fontSize: number) {
   }
 }
 
+type Box = { x: number; y: number; w: number; h: number }
+
+/** Breathing room between auto-placed shapes, matching the tool's advice. */
+const PLACE_GAP = 80
+
+/**
+ * Enough of `b` is buried under `a` that both stop being readable. Touching
+ * or slightly overlapping neighbours are deliberate layout; a shape landing
+ * on top of another is the failure mode this guards against.
+ */
+function overlapsHeavily(a: Box, b: Box): boolean {
+  const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  if (ix <= 0 || iy <= 0) return false
+  const smaller = Math.min(a.w * a.h, b.w * b.h)
+  return smaller > 0 && (ix * iy) / smaller > 0.4
+}
+
+/** Shapes a new element must keep clear of: live, top-level, with area. */
+function placementObstacles(
+  working: ReadonlyMap<string, CanvasRecord>,
+  skipId: string,
+): Box[] {
+  const boxes: Box[] = []
+  for (const [id, entry] of working) {
+    if (id === skipId) continue
+    const element = liveElement(entry)
+    if (!element || element.containerId) continue
+    const type = element.type as string
+    if (type === "arrow" || type === "freedraw") continue
+    const { x, y, width, height } = element as Partial<
+      Record<"x" | "y" | "width" | "height", number>
+    >
+    if (typeof x !== "number" || typeof y !== "number") continue
+    boxes.push({ x, y, w: width ?? 0, h: height ?? 0 })
+  }
+  return boxes
+}
+
+/**
+ * Where a create op actually lands. The caller's coordinates are intent —
+ * but voice models repeat themselves, so a shape that would bury an existing
+ * one slides right past the blocker, and past the row's edge drops to a
+ * fresh row below everything. Omitted coordinates start at the right edge of
+ * what's already drawn.
+ */
+function placeCreate(
+  working: ReadonlyMap<string, CanvasRecord>,
+  id: string,
+  op: { x?: number; y?: number },
+  w: number,
+  h: number,
+): { x: number; y: number; nudged: boolean } {
+  const current = liveElement(working.get(id))
+  const obstacles = placementObstacles(working, id)
+  if (
+    (op.x === undefined || op.y === undefined) &&
+    typeof current?.x === "number"
+  ) {
+    // Re-creating an existing shape without coordinates keeps its place.
+    return { x: current.x as number, y: current.y as number, nudged: false }
+  }
+  let x =
+    op.x ??
+    (obstacles.length
+      ? Math.max(...obstacles.map((b) => b.x + b.w)) + PLACE_GAP
+      : 0)
+  let y =
+    op.y ?? (obstacles.length ? Math.min(...obstacles.map((b) => b.y)) : 0)
+  // Redrawing a shape at its own spot is idempotent, never a collision.
+  if (current && current.x === x && current.y === y) {
+    return { x, y, nudged: false }
+  }
+  const desired = { x, y }
+  const rowStart = x
+  const rowLimit = x + 1600
+  for (let i = 0; i <= obstacles.length; i++) {
+    const hit = obstacles.find((b) => overlapsHeavily({ x, y, w, h }, b))
+    if (!hit) break
+    x = hit.x + hit.w + PLACE_GAP / 2
+    if (x + w > rowLimit) {
+      // A guaranteed-clear row under everything already drawn.
+      x = rowStart
+      y = Math.max(...obstacles.map((b) => b.y + b.h)) + PLACE_GAP / 2
+      break
+    }
+  }
+  return { x, y, nudged: x !== desired.x || y !== desired.y }
+}
+
 export function buildCanvasRecords(
   ops: CanvasOp[],
   existing: ReadonlyMap<string, CanvasRecord>,
@@ -200,17 +290,27 @@ export function buildCanvasRecords(
 
   const softDelete = (id: string) => patch(id, { isDeleted: true })
 
+  const atSpot = (spot: { x: number; y: number }) =>
+    `(${Math.round(spot.x)}, ${Math.round(spot.y)})`
+  /** Tell the model its shape landed elsewhere, so its map stays right. */
+  const noteNudge = (opId: string, spot: { x: number; y: number }) => {
+    warnings.push(
+      `"${opId}" would have covered an existing shape, so it was placed at ${atSpot(spot)} instead.`,
+    )
+  }
+
   for (const op of ops) {
     switch (op.op) {
       case "rect":
       case "ellipse": {
         const id = resolveId(op.id)
         const color = STROKE_COLORS[op.color ?? "black"]
+        const spot = placeCreate(working, id, op, op.w, op.h)
         const element: LooseElement = {
           ...baseElement(id, at),
           type: op.op === "rect" ? "rectangle" : "ellipse",
-          x: op.x,
-          y: op.y,
+          x: spot.x,
+          y: spot.y,
           width: op.w,
           height: op.h,
           strokeColor: color,
@@ -227,8 +327,9 @@ export function buildCanvasRecords(
           ]
         }
         put(id, element)
+        if (spot.nudged) noteNudge(op.id, spot)
         actions.push(
-          `${op.op}${op.label ? ` "${op.label}"` : ""} (id ${op.id})`,
+          `${op.op}${op.label ? ` "${op.label}"` : ""} (id ${op.id}) at ${atSpot(spot)}`,
         )
         break
       }
@@ -236,11 +337,12 @@ export function buildCanvasRecords(
         const id = resolveId(op.id)
         const fontSize = FONT_SIZES[op.size ?? "m"]
         const size = measure(op.text, fontSize)
+        const spot = placeCreate(working, id, op, size.width, size.height)
         put(id, {
           ...baseElement(id, at),
           type: "text",
-          x: op.x,
-          y: op.y,
+          x: spot.x,
+          y: spot.y,
           width: size.width,
           height: size.height,
           strokeColor: STROKE_COLORS[op.color ?? "black"],
@@ -254,19 +356,25 @@ export function buildCanvasRecords(
           autoResize: true,
           lineHeight: 1.25,
         })
-        actions.push(`text "${truncate(op.text, 30)}" (id ${op.id})`)
+        if (spot.nudged) noteNudge(op.id, spot)
+        actions.push(
+          `text "${truncate(op.text, 30)}" (id ${op.id}) at ${atSpot(spot)}`,
+        )
         break
       }
       case "note": {
         const id = resolveId(op.id)
         const size = measure(op.text, 20)
+        const w = Math.max(size.width + 40, 180)
+        const h = Math.max(size.height + 40, 100)
+        const spot = placeCreate(working, id, op, w, h)
         const element: LooseElement = {
           ...baseElement(id, at),
           type: "rectangle",
-          x: op.x,
-          y: op.y,
-          width: Math.max(size.width + 40, 180),
-          height: Math.max(size.height + 40, 100),
+          x: spot.x,
+          y: spot.y,
+          width: w,
+          height: h,
           strokeColor: STROKE_COLORS.black,
           backgroundColor: BACKGROUND_COLORS[op.color ?? "yellow"],
           fillStyle: "solid",
@@ -276,7 +384,10 @@ export function buildCanvasRecords(
           putLabel(id, element, op.text, STROKE_COLORS.black),
         ]
         put(id, element)
-        actions.push(`note "${truncate(op.text, 30)}" (id ${op.id})`)
+        if (spot.nudged) noteNudge(op.id, spot)
+        actions.push(
+          `note "${truncate(op.text, 30)}" (id ${op.id}) at ${atSpot(spot)}`,
+        )
         break
       }
       case "draw": {
@@ -390,7 +501,7 @@ export function buildCanvasRecords(
             y: (label.y as number) + dy,
           })
         }
-        actions.push(`moved ${op.id}`)
+        actions.push(`moved ${op.id} to ${atSpot(op)}`)
         break
       }
       case "update": {

@@ -48,3 +48,59 @@ export function resetCanvas() {
   $agentDrawing.set(null)
   $canvasUnseen.set(false)
 }
+
+/**
+ * Excalidraw bumps `version`/`versionNonce` for bookkeeping it does on its
+ * own — most notably assigning a fractional `index` when `restoreElements`
+ * mounts an element that arrived without one (everything the agent draws).
+ * Treating that churn as a local edit would re-author the element under this
+ * client's identity with a bumped LWW clock `v` — and the bridge, whose
+ * clock base is the (lagging) snapshot store, then loses every subsequent
+ * move/update to a shape nobody actually touched.
+ */
+const CHURN_FIELDS = new Set(["version", "versionNonce", "updated", "index"])
+
+function contentKey(element: Record<string, unknown>): string {
+  const stable = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`
+    if (value && typeof value === "object") {
+      return `{${Object.keys(value)
+        .sort()
+        .map((k) => `${k}:${stable((value as Record<string, unknown>)[k])}`)
+        .join(",")}}`
+    }
+    return JSON.stringify(value) ?? "null"
+  }
+  const keys = Object.keys(element)
+    .filter((k) => !CHURN_FIELDS.has(k))
+    .sort()
+  return keys
+    .map((k) => {
+      // `restoreElements` normalizes a null binding list to [].
+      const value = k === "boundElements" ? (element[k] ?? []) : element[k]
+      return `${k}:${stable(value)}`
+    })
+    .join(";")
+}
+
+/** True when two element snapshots differ only by Excalidraw bookkeeping. */
+export function isElementChurn(
+  cached: Record<string, unknown>,
+  scene: Record<string, unknown>,
+): boolean {
+  return contentKey(cached) === contentKey(scene)
+}
+
+/**
+ * Fold Excalidraw's bookkeeping (fractional index, restore version bump)
+ * into the cached record without advancing its LWW clock or changing its
+ * author — nothing changed that peers or the store care about ordering.
+ */
+export function adoptCanvasRecord(id: string, element: unknown) {
+  const current = $canvasRecords.get()[id]
+  if (!current) return
+  $canvasRecords.setKey(id, {
+    ...current,
+    record: JSON.parse(JSON.stringify(element)) as Record<string, unknown>,
+  })
+}

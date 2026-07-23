@@ -651,11 +651,14 @@ export const canvasColorSchema = z.enum([
 export type CanvasColor = z.infer<typeof canvasColorSchema>
 
 export const canvasOpSchema = z.discriminatedUnion("op", [
+  // Create ops may omit x/y: the bridge auto-places the shape in free space
+  // next to existing content, which beats a voice model guessing (and
+  // repeating) coordinates.
   z.object({
     op: z.literal("rect"),
     id: z.string().min(1),
-    x: z.number(),
-    y: z.number(),
+    x: z.number().optional(),
+    y: z.number().optional(),
     w: z.number().positive(),
     h: z.number().positive(),
     label: z.string().optional(),
@@ -665,8 +668,8 @@ export const canvasOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("ellipse"),
     id: z.string().min(1),
-    x: z.number(),
-    y: z.number(),
+    x: z.number().optional(),
+    y: z.number().optional(),
     w: z.number().positive(),
     h: z.number().positive(),
     label: z.string().optional(),
@@ -676,8 +679,8 @@ export const canvasOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("text"),
     id: z.string().min(1),
-    x: z.number(),
-    y: z.number(),
+    x: z.number().optional(),
+    y: z.number().optional(),
     text: z.string().min(1),
     size: z.enum(["s", "m", "l", "xl"]).optional(),
     color: canvasColorSchema.optional(),
@@ -685,8 +688,8 @@ export const canvasOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("note"),
     id: z.string().min(1),
-    x: z.number(),
-    y: z.number(),
+    x: z.number().optional(),
+    y: z.number().optional(),
     text: z.string().min(1),
     color: canvasColorSchema.optional(),
   }),

@@ -34,7 +34,9 @@ import { roomAuthHeaders } from "@/lib/roomAuth"
 import {
   $canvasOpen,
   $canvasRecords,
+  adoptCanvasRecord,
   applyCanvasChanges,
+  isElementChurn,
 } from "@/stores/canvas"
 import { $theme } from "@/stores/theme"
 import "@excalidraw/excalidraw/index.css"
@@ -49,8 +51,14 @@ if (typeof window !== "undefined") {
 /** Batch local edits before broadcasting; LWW makes lost interims harmless. */
 const BROADCAST_THROTTLE_MS = 120
 
-/** How long after the last local edit the durable snapshot PUT fires. */
-const SNAPSHOT_DEBOUNCE_MS = 3_000
+/**
+ * How long local edits may accumulate before the durable snapshot PUT
+ * fires. A trailing throttle, not a debounce: the bridge bases agent edits
+ * on the snapshot store, so continuous local editing must not postpone the
+ * PUT indefinitely — a starved store hands the agent stale LWW clocks and
+ * its moves silently lose everywhere.
+ */
+const SNAPSHOT_THROTTLE_MS = 3_000
 
 type LooseElement = Record<string, unknown>
 
@@ -129,8 +137,11 @@ export function WhiteboardCanvas({ slug }: { slug: string }) {
 
   const schedulePut = () => {
     snapshotDirty.current = true
-    if (snapshotTimer.current) clearTimeout(snapshotTimer.current)
-    snapshotTimer.current = setTimeout(putSnapshot, SNAPSHOT_DEBOUNCE_MS)
+    if (snapshotTimer.current) return
+    snapshotTimer.current = setTimeout(() => {
+      snapshotTimer.current = null
+      putSnapshot()
+    }, SNAPSHOT_THROTTLE_MS)
   }
 
   const putSnapshot = () => {
@@ -170,6 +181,14 @@ export function WhiteboardCanvas({ slug }: { slug: string }) {
         cached.version === element.version &&
         cached.versionNonce === element.versionNonce
       ) {
+        continue
+      }
+      // Version churn without a content change is Excalidraw's own
+      // bookkeeping (fractional-index assignment on restore, binding
+      // repairs): fold it into the cache but don't re-author the element —
+      // bumping `v` here makes agent moves lose the LWW race later.
+      if (cached && isElementChurn(cached, element)) {
+        adoptCanvasRecord(id, element)
         continue
       }
       touched.push({

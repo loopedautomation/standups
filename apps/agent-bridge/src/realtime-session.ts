@@ -275,7 +275,10 @@ export function toolDeclarations(
               "that connect shapes by id. Coordinates are page pixels: lay " +
               "diagrams out left-to-right or top-down starting near (0,0) " +
               "on roughly a 1600x1000 area, size boxes around 160x80, and " +
-              "leave ~80px gaps. Give every shape a short memorable id " +
+              "leave ~80px gaps. Omit x/y to auto-place a shape in free " +
+              "space; every result reports where each shape landed — use " +
+              "those positions when placing the next ones, never reuse the " +
+              "same spot. Give every shape a short memorable id " +
               "(e.g. 'api') so you can connect, move or update it later. " +
               "Build complex diagrams incrementally across several calls " +
               "while you talk — draw a part, say what it is, draw the " +
@@ -311,7 +314,12 @@ export function toolDeclarations(
                           "Short id, e.g. 'api'. Required for every op " +
                           "except clear.",
                       },
-                      x: { type: "number" },
+                      x: {
+                        type: "number",
+                        description:
+                          "Page-pixel position. Omit on creates to " +
+                          "auto-place clear of existing shapes.",
+                      },
                       y: { type: "number" },
                       w: { type: "number" },
                       h: { type: "number" },
