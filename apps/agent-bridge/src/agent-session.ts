@@ -1,6 +1,7 @@
 import { ReadableStream } from "node:stream/web"
 import { type ChatContext, type llm, voice } from "@livekit/agents"
 import type { AgentActivityEvent, AgentState, TurnPolicy } from "@meet/shared"
+import { DocBlockExtractor } from "./doc-blocks.js"
 import type { TtyServerFrame } from "./looped-tty.js"
 import type { Brain } from "./looped-webhook.js"
 import type { AgentEntry } from "./registry.js"
@@ -10,6 +11,12 @@ export type BridgeCallbacks = {
   publishActivity: (event: AgentActivityEvent) => void
   publishChat: (text: string) => void
   setState: (state: AgentState) => void
+  /**
+   * Persist the shared document and broadcast it to the room. Present on the
+   * pipeline path, where the brain writes the doc via marker blocks in its
+   * replies (see doc-blocks.ts); the realtime path has its own doc tools.
+   */
+  writeDoc?: (text: string) => Promise<string>
 }
 
 /** Mutable per-session flags shared between the voice agent and the job. */
@@ -143,6 +150,34 @@ export class LoopedVoiceAgent extends voice.Agent {
     // A live screenshare rides along as a frame, so the agent can see it.
     const attached = await attachScreenFrame(this.#screen, text)
 
+    // Doc writes ride inside the reply as marker blocks (see doc-blocks.ts):
+    // lifted out here so they get saved instead of spoken. Extraction state
+    // lives per turn — a block left open by a barge-in dies with the stream.
+    const docBlocks = callbacks.writeDoc ? new DocBlockExtractor() : null
+    const saveDoc = (text: string) => {
+      const startedAt = Date.now()
+      callbacks.publishActivity({
+        type: "tool_call",
+        agentId: entry.id,
+        name: "update_shared_doc",
+        arguments: "",
+        at: startedAt,
+      })
+      void callbacks
+        .writeDoc?.(text)
+        .catch(() => "The document couldn't be saved.")
+        .then((outcome) => {
+          callbacks.publishActivity({
+            type: "tool_result",
+            agentId: entry.id,
+            name: "update_shared_doc",
+            content: outcome ?? "",
+            durationMs: Date.now() - startedAt,
+            at: Date.now(),
+          })
+        })
+    }
+
     const iterator = brain.runTurn(attached.text, attached.images)
     return new ReadableStream<string>({
       async pull(controller) {
@@ -156,6 +191,22 @@ export class LoopedVoiceAgent extends voice.Agent {
         } catch (err) {
           callbacks.setState(state.muted ? "muted" : "listening")
           controller.error(err)
+        }
+
+        /** Route reply text: lift doc blocks out, speak (or chat) the rest. */
+        function speakOrSave(raw: string) {
+          let content = raw
+          if (docBlocks) {
+            const { spoken, docs } = docBlocks.feed(raw)
+            for (const doc of docs) saveDoc(doc)
+            content = spoken
+          }
+          if (!content.trim()) return
+          if (state.muted) {
+            callbacks.publishChat(content)
+          } else {
+            controller.enqueue(content)
+          }
         }
 
         function handleFrame(frame: TtyServerFrame) {
@@ -190,11 +241,7 @@ export class LoopedVoiceAgent extends voice.Agent {
               })
               break
             case "assistant":
-              if (state.muted) {
-                callbacks.publishChat(frame.content)
-              } else {
-                controller.enqueue(frame.content)
-              }
+              speakOrSave(frame.content)
               break
             case "result":
               controller.close()

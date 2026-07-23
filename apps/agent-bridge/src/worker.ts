@@ -29,6 +29,8 @@ import {
   docCursorColor,
   type ParticipantMeta,
   parseParticipantMeta,
+  type SharedDoc,
+  sharedDocSchema,
   TRANSCRIPTION_TOPIC,
 } from "@meet/shared"
 import {
@@ -43,6 +45,7 @@ import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
 import { buildCanvasRecords } from "./canvas-records.js"
 import { controlAllowed } from "./control-auth.js"
+import { DOC_PROTOCOL_NOTE, DocBlockExtractor } from "./doc-blocks.js"
 import {
   dynamicAgentsPublicOnly,
   getDynamicAgent,
@@ -462,6 +465,10 @@ export default defineAgent({
       priorTranscript
         ? `Transcript of the meeting before you joined:\n${priorTranscript}`
         : "",
+      // Realtime brains write the doc through the voice model's
+      // update_shared_doc tool instead; telling them about marker blocks
+      // would have them wrap ordinary replies in one.
+      entry.realtime ? "" : DOC_PROTOCOL_NOTE,
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -475,8 +482,18 @@ export default defineAgent({
     // pipeline path leaves it empty: its brain hears every turn directly,
     // and the room transcriber's copy would duplicate them.)
     const heardSince: string[] = []
+    // Latest shared-doc edit by someone else (pipeline path only): the brain
+    // has no read tool, so without this it would rewrite from the stale copy
+    // it saw at join time and clobber everything typed since.
+    let docSince: SharedDoc | null = null
     const brain = withMeetingContext(rawBrain, meetingContext, () => {
       const parts: string[] = []
+      if (docSince) {
+        parts.push(
+          `[${docSince.byName || docSince.by} updated the shared document. ${formatSharedDoc(docSince)}]`,
+        )
+        docSince = null
+      }
       const heard = heardSince.splice(0)
       if (heard.length) {
         parts.push(
@@ -630,7 +647,7 @@ export default defineAgent({
       entry,
       brain,
       sessionState,
-      { publishActivity, publishChat, setState },
+      { publishActivity, publishChat, setState, writeDoc: publishDoc },
       screen,
       { roster: () => describeRoster(ctx.room) },
     )
@@ -855,6 +872,21 @@ export default defineAgent({
         } catch {
           // ignore malformed chat messages
         }
+      } else if (topic === DataTopic.Doc) {
+        // A participant saved the shared document (DocPanel broadcasts every
+        // save). Own writes never arrive here — LiveKit doesn't echo data
+        // back to the sender — so this is always someone else's edit.
+        try {
+          const doc = sharedDocSchema.parse(
+            JSON.parse(new TextDecoder().decode(payload)),
+          )
+          docSince = {
+            ...doc,
+            byName: sender?.name || sender?.identity || doc.byName,
+          }
+        } catch {
+          // ignore malformed doc messages
+        }
       }
     })
 
@@ -893,7 +925,22 @@ export default defineAgent({
             throw new Error(frame.error)
           }
         }
-        if (reply) publishChat(reply)
+        // A chat-asked doc edit comes back as a marker block too — save it
+        // and keep it out of the chat.
+        const { spoken, docs } = new DocBlockExtractor().feed(reply)
+        for (const doc of docs) {
+          const outcome = await publishDoc(doc)
+          publishActivity({
+            type: "tool_result",
+            agentId: entry.id,
+            name: "update_shared_doc",
+            content: outcome,
+            durationMs: 0,
+            at: Date.now(),
+          })
+        }
+        if (spoken.trim()) publishChat(spoken.trim())
+        else if (docs.length) publishChat("(I've updated the shared document.)")
       } catch (err) {
         const busy = err instanceof Error && /in progress/.test(err.message)
         publishChat(
