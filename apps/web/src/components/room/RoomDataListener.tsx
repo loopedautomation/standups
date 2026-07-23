@@ -9,8 +9,8 @@ import {
   chatOpSchema,
   DataTopic,
   docPresenceSchema,
+  docSyncMessageSchema,
   parseParticipantMeta,
-  sharedDocSchema,
   TYPING_STALE_MS,
 } from "@meet/shared"
 import { RoomEvent } from "livekit-client"
@@ -24,7 +24,7 @@ import {
   noteAgentDrawing,
   resetCanvas,
 } from "@/stores/canvas"
-import { applyDocUpdate, resetDoc } from "@/stores/doc"
+import { $doc, applyRemoteDocUpdate, resetDoc } from "@/stores/doc"
 import {
   removeDocPresence,
   resetDocPresence,
@@ -110,20 +110,20 @@ export function RoomDataListener({ slug }: { slug: string }) {
 
   useDataChannel(DataTopic.Doc, (msg) => {
     try {
-      const parsed = sharedDocSchema.safeParse(
+      const parsed = docSyncMessageSchema.safeParse(
         JSON.parse(new TextDecoder().decode(msg.payload)),
       )
       if (!parsed.success) return
-      // Attribution follows the actual LiveKit sender, not payload claims.
-      applyDocUpdate(
-        msg.from
-          ? {
-              ...parsed.data,
-              by: msg.from.identity,
-              byName: msg.from.name || msg.from.identity,
-            }
-          : parsed.data,
-      )
+      if (!applyRemoteDocUpdate(parsed.data.update)) return
+      // Attribution follows the actual LiveKit sender, not payload claims —
+      // shown as "last edited by", while the text itself merged above.
+      if (msg.from) {
+        $doc.set({
+          ...$doc.get(),
+          by: msg.from.identity,
+          byName: msg.from.name || msg.from.identity,
+        })
+      }
     } catch {}
   })
 
@@ -213,18 +213,29 @@ export function RoomDataListener({ slug }: { slug: string }) {
   // first line was written sees a blank page until somebody types.
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/rooms/${slug}/doc`, { headers: roomAuthHeaders(slug) })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body) return
-        const parsed = sharedDocSchema.safeParse(body.doc)
-        if (parsed.success) applyDocUpdate(parsed.data)
-      })
-      .catch(() => undefined)
+    const fetchDocSnapshot = () => {
+      fetch(`/api/rooms/${slug}/doc`, { headers: roomAuthHeaders(slug) })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { snapshot?: unknown } | null) => {
+          if (cancelled || !body) return
+          if (typeof body.snapshot === "string" && body.snapshot) {
+            // A CRDT state merges with whatever broadcasts raced past it —
+            // apply order between this fetch and live updates doesn't matter.
+            applyRemoteDocUpdate(body.snapshot)
+          }
+        })
+        .catch(() => undefined)
+    }
+    fetchDocSnapshot()
+    // Refetched after a reconnect: an update lost across the gap would
+    // leave Yjs queueing everything after it — the doc looks frozen until
+    // a full state fills the hole.
+    room.on(RoomEvent.Reconnected, fetchDocSnapshot)
     return () => {
       cancelled = true
+      room.off(RoomEvent.Reconnected, fetchDocSnapshot)
     }
-  }, [slug])
+  }, [slug, room])
 
   // Same for the whiteboard. Records carry their own clocks, so this fetch
   // and any diffs racing past it converge whichever lands first.

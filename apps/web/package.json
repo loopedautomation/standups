@@ -28,6 +28,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-toastify": "^11.1.0",
+    "yjs": "^13.6.31",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -2,18 +2,17 @@ import { serve } from "@hono/node-server"
 import { AgentServer, initializeLogger, ServerOptions } from "@livekit/agents"
 import {
   AGENT_VOICES,
+  base64ToBytes,
+  bytesToBase64,
   type CanvasRecord,
   canvasDiffSchema,
   canvasSnapshotSchema,
-  clampIncomingDocRev,
-  emptySharedDoc,
+  docSnapshotPutSchema,
   GEMINI_VOICES,
   MAX_CANVAS_BYTES,
   mergeCanvasRecord,
-  mergeSharedDoc,
   OPENAI_TTS_VOICES,
-  type SharedDoc,
-  sharedDocSchema,
+  Y,
 } from "@meet/shared"
 import { Hono } from "hono"
 import { AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk"
@@ -304,11 +303,14 @@ app.get("/internal/rooms/:room/transcript", (c) => {
 // in the room, so the document also lives here: a late joiner, a refresh, or
 // an agent that wants to read what was planned all fetch it from one place.
 // Memory only, like the transcript, and dropped on the same schedule.
-const MAX_DOC_BYTES = 256 * 1024
+const MAX_DOC_BYTES = 1024 * 1024
 // Global cap on stored documents: without it, PUTs under arbitrary slugs
 // can grow this map for 24h straight. Oldest room evicted first.
 const MAX_DOC_ROOMS = 1000
-const docs = new Map<string, { updatedAt: number; doc: SharedDoc }>()
+// Merged Yjs state bytes per room. mergeUpdates is commutative and
+// idempotent, so concurrent PUTs from different peers converge here without
+// this store ever holding a live Y.Doc.
+const docs = new Map<string, { updatedAt: number; state: Uint8Array }>()
 
 function evictOldestDocIfFull() {
   if (docs.size < MAX_DOC_ROOMS) return
@@ -335,30 +337,37 @@ setInterval(
 
 app.get("/rooms/:room/doc", (c) => {
   const { room } = c.req.param()
-  return c.json({ doc: docs.get(room)?.doc ?? emptySharedDoc })
+  const state = docs.get(room)?.state
+  return c.json({ snapshot: state ? bytesToBase64(state) : null })
 })
 
 app.put("/rooms/:room/doc", async (c) => {
   const { room } = c.req.param()
-  const parsed = sharedDocSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return c.json({ error: "invalid doc" }, 400)
-  if (Buffer.byteLength(parsed.data.text) > MAX_DOC_BYTES) {
+  const parsed = docSnapshotPutSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) return c.json({ error: "invalid doc update" }, 400)
+  let incoming: Uint8Array
+  try {
+    incoming = base64ToBytes(parsed.data.update)
+  } catch {
+    return c.json({ error: "invalid doc update" }, 400)
+  }
+  const current = docs.get(room)?.state
+  let state: Uint8Array
+  try {
+    // Merged, not overwritten: peers PUT their own full states concurrently
+    // and every interleaving lands on the same bytes' worth of history.
+    state = current ? Y.mergeUpdates([current, incoming]) : incoming
+  } catch {
+    return c.json({ error: "invalid doc update" }, 400)
+  }
+  if (state.byteLength > MAX_DOC_BYTES) {
     return c.json({ error: "document too large" }, 413)
   }
-  // Merged, not overwritten: two clients can PUT concurrently, and the store
-  // has to land on the same winner every peer's local merge did.
-  const current = docs.get(room)?.doc ?? emptySharedDoc
-  // Revisions are clamped to one past the stored doc: a client that jumps
-  // `rev` to the schema ceiling would otherwise freeze the document — every
-  // later legitimate increment would overflow validation forever.
-  const incoming = {
-    ...parsed.data,
-    rev: clampIncomingDocRev(parsed.data.rev, current.rev),
-  }
-  const doc = mergeSharedDoc(current, incoming)
   if (!docs.has(room)) evictOldestDocIfFull()
-  docs.set(room, { updatedAt: Date.now(), doc })
-  return c.json({ doc })
+  docs.set(room, { updatedAt: Date.now(), state })
+  return c.json({ ok: true })
 })
 
 // ---- shared canvas store ---------------------------------------------------

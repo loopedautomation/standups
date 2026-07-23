@@ -427,79 +427,27 @@ export type ChatOp = z.infer<typeof chatOpSchema>
 /**
  * The meeting's shared markdown document, on the `doc` topic.
  *
- * Whole-document updates rather than character operations: this is a plan
- * being written during a call, where the agent drafts and people edit
- * between turns, not a Google Doc with six simultaneous typists. `rev`
- * orders edits so a straggling broadcast can't resurrect stale text.
+ * Synced as a Yjs text CRDT — see doc-sync.ts for the transport and
+ * helpers. `SharedDoc` here is the read-side *view* of the document
+ * (text plus display metadata), kept under its historical name so
+ * consumers (context formatting, panel UI) read naturally.
  */
-/**
- * Ceiling on a document revision. Bounded so a malicious MAX_SAFE_INTEGER
- * `rev` can't freeze everyone's edits: without a cap, one huge revision
- * would make every legitimate `+1` increment overflow schema validation
- * forever. No real meeting doc approaches a billion edits.
- */
-export const MAX_DOC_REV = 1_000_000_000
-
-/** Next revision after `current`, clamped so it can never exceed the cap. */
-export function nextDocRev(current: number): number {
-  return Math.min(current + 1, MAX_DOC_REV)
-}
-
-/** An incoming rev clamped to at most one past what we already hold. */
-export function clampIncomingDocRev(
-  incomingRev: number,
-  currentRev: number,
-): number {
-  return Math.min(incomingRev, nextDocRev(currentRev))
-}
-
-export const sharedDocSchema = z.object({
-  // Char cap well above the store's byte cap — the store enforces bytes;
-  // this stops a pathological payload before it's even merged.
-  text: z.string().max(300_000),
-  /**
-   * Increments on every accepted edit; the primary ordering. Bounded by
-   * MAX_DOC_REV so a malicious revision can't freeze everyone's updates.
-   */
-  rev: z.number().int().min(0).max(MAX_DOC_REV),
-  /** Who last wrote, so the panel can say "Scout is drafting". */
-  by: z.string().max(128),
-  byName: z.string().max(128),
-  at: z.number(),
-})
-export type SharedDoc = z.infer<typeof sharedDocSchema>
-
-export const emptySharedDoc: SharedDoc = {
-  text: "",
-  rev: 0,
-  by: "",
-  byName: "",
-  at: 0,
-}
-
-/**
- * Picks the winner between what we hold and what just arrived.
- *
- * Every peer runs this on the same pair and must reach the same answer, or
- * the room's copies diverge silently — which is why the tie-breaks go all
- * the way down to comparing identities rather than stopping at "whatever
- * arrived last". Two people editing the same instant means one of them
- * loses their keystroke; that's the accepted cost of not shipping a CRDT.
- */
-export function mergeSharedDoc(
-  current: SharedDoc,
-  incoming: SharedDoc,
-): SharedDoc {
-  if (incoming.rev !== current.rev) {
-    return incoming.rev > current.rev ? incoming : current
-  }
-  if (incoming.at !== current.at) {
-    return incoming.at > current.at ? incoming : current
-  }
-  // Same revision, same millisecond: fall back to a stable comparison so
-  // every participant converges on one text instead of on their own.
-  return incoming.by > current.by ? incoming : current
-}
+export {
+  applyDocUpdateB64,
+  base64ToBytes,
+  bytesToBase64,
+  type DocSyncMessage,
+  docSnapshotPutSchema,
+  docSyncMessageSchema,
+  docText,
+  emptySharedDocView as emptySharedDoc,
+  encodeDocDiffB64,
+  encodeDocStateB64,
+  readSharedDoc,
+  type SharedDocView as SharedDoc,
+  setSharedDocText,
+  Y,
+} from "./doc-sync.js"
 
 /**
  * Where someone's cursor sits in the shared document right now.
@@ -772,6 +720,18 @@ export const canvasOpSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("clear"),
+  }),
+  // A whole structured diagram from Mermaid flowchart source: the bridge
+  // parses the topology and lays it out with a real graph-layout algorithm,
+  // so models describe boxes-and-arrows without ever guessing coordinates.
+  // The op expands into rect/ellipse/arrow primitives, ids prefixed
+  // "<id>.<node>", placed as one block in free space (or at x/y if given).
+  z.object({
+    op: z.literal("diagram"),
+    id: z.string().min(1),
+    mermaid: z.string().min(1).max(20_000),
+    x: z.number().optional(),
+    y: z.number().optional(),
   }),
 ])
 export type CanvasOp = z.infer<typeof canvasOpSchema>

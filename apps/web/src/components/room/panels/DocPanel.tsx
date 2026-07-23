@@ -8,15 +8,14 @@ import {
 import {
   DataTopic,
   type DocPresence,
+  type DocSyncMessage,
   docCursorColor,
-  nextDocRev,
-  type SharedDoc,
 } from "@meet/shared"
 import { useStore } from "@nanostores/react"
 import { Check, Copy, Download } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { roomAuthHeaders } from "@/lib/roomAuth"
-import { $doc, applyDocUpdate } from "@/stores/doc"
+import { $doc, encodeDocState, setLocalDocText } from "@/stores/doc"
 import {
   $docPresence,
   pruneDocPresence,
@@ -193,43 +192,38 @@ export function DocPanel({ slug }: { slug: string }) {
   }, [doc.text])
 
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingPersist = useRef<SharedDoc | null>(null)
+  const persistPending = useRef(false)
 
   const publish = useCallback(
     (text: string) => {
-      const current = $doc.get()
-      if (text === current.text) return
-      const update: SharedDoc = {
-        text,
-        // Capped at the schema ceiling so a malicious peer's huge rev can't
-        // push our next increment past validation and freeze our edits.
-        rev: nextDocRev(current.rev),
+      // The edit lands in the CRDT as a minimal splice — a concurrent
+      // remote edit elsewhere in the text merges instead of losing.
+      const update = setLocalDocText(text, {
         by: localParticipant.identity,
         byName: localParticipant.name || localParticipant.identity,
-        at: Date.now(),
-      }
-      applyDocUpdate(update)
-      syncedTextRef.current = update.text
-      void send(new TextEncoder().encode(JSON.stringify(update)), {
+      })
+      if (!update) return
+      syncedTextRef.current = $doc.get().text
+      const msg: DocSyncMessage = { type: "doc-sync", update }
+      void send(new TextEncoder().encode(JSON.stringify(msg)), {
         topic: DataTopic.Doc,
         reliable: true,
       })
       // Persisted too — the data message only reaches people already here —
-      // but on its own, slower clock: the store serves late joiners, so it
+      // but on its own, slower clock: the store merges full states, so it
       // doesn't need every intermediate keystroke.
-      pendingPersist.current = update
+      persistPending.current = true
       if (persistTimer.current) clearTimeout(persistTimer.current)
       persistTimer.current = setTimeout(() => {
-        const body = pendingPersist.current
-        pendingPersist.current = null
-        if (!body) return
+        if (!persistPending.current) return
+        persistPending.current = false
         void fetch(`/api/rooms/${slug}/doc`, {
           method: "PUT",
           headers: {
             "content-type": "application/json",
             ...roomAuthHeaders(slug),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ update: encodeDocState() }),
         }).catch(() => undefined)
       }, PERSIST_DEBOUNCE_MS)
     },
@@ -240,16 +234,15 @@ export function DocPanel({ slug }: { slug: string }) {
   useEffect(
     () => () => {
       if (persistTimer.current) clearTimeout(persistTimer.current)
-      const body = pendingPersist.current
-      if (!body) return
-      pendingPersist.current = null
+      if (!persistPending.current) return
+      persistPending.current = false
       void fetch(`/api/rooms/${slug}/doc`, {
         method: "PUT",
         headers: {
           "content-type": "application/json",
           ...roomAuthHeaders(slug),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ update: encodeDocState() }),
       }).catch(() => undefined)
     },
     [slug],

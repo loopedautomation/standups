@@ -18,6 +18,7 @@ import {
   type AgentActivityEvent,
   type AgentState,
   agentControlSchema,
+  applyDocUpdateB64,
   type CanvasDiff,
   type CanvasOp,
   type CanvasPresence,
@@ -29,14 +30,18 @@ import {
   DataTopic,
   type DocPresence,
   docCursorColor,
+  docSyncMessageSchema,
+  encodeDocDiffB64,
   mentionsName,
   mergeCanvasRecord,
   type ParticipantMeta,
   parseParticipantMeta,
+  readSharedDoc,
   type SharedDoc,
-  sharedDocSchema,
+  setSharedDocText,
   TRANSCRIPTION_TOPIC,
   TYPING_HEARTBEAT_MS,
+  Y,
 } from "@meet/shared"
 import {
   CURSOR_FRAME_MS,
@@ -67,15 +72,15 @@ import { type Brain, LoopedWebhookClient } from "./looped-webhook.js"
 import {
   describeRoster,
   fetchCanvas,
-  fetchSharedDoc,
   fetchTranscript,
   formatCanvas,
   formatSharedDoc,
   formatTranscript,
+  persistSharedDoc,
   postCanvasDiff,
   postDebugEvent,
   pushBounded,
-  saveSharedDoc,
+  seedSharedDoc,
   withMeetingContext,
 } from "./meeting-context.js"
 import { runRealtimeAgent } from "./realtime-agent.js"
@@ -384,24 +389,52 @@ export default defineAgent({
     }
     const agentCursorColor = docCursorColor(`agent-${entry.id}`, -1)
 
+    // The worker's replica of the shared document CRDT: seeded from the
+    // store, kept current by every doc-sync broadcast, and the base for the
+    // agent's own writes.
+    const docYDoc = new Y.Doc()
+    // The doc state as of the brain's last read. The brain replies with a
+    // COMPLETE document composed from that read — humans may have typed
+    // since. Splicing its reply against this frozen base and merging the
+    // fork back in turns the staleness into ordinary CRDT concurrency:
+    // the human's mid-think edit and the agent's rewrite both land.
+    let docReadState: Uint8Array | null = null
+    const readDocText = async (): Promise<string> => {
+      await seedSharedDoc(roomName, docYDoc)
+      docReadState = Y.encodeStateAsUpdate(docYDoc)
+      return readSharedDoc(docYDoc).text
+    }
+
     /**
      * Write the shared document and tell the room. Persisting alone isn't
      * enough — anyone with the Doc panel open is watching the data channel,
      * and would keep showing the old text until they reloaded.
      */
     const publishDoc = async (text: string): Promise<string> => {
-      const saved = await saveSharedDoc(
-        roomName,
-        text,
-        `agent-${entry.id}`,
-        entry.name,
-      )
-      if (!saved) return "The document couldn't be saved."
+      await seedSharedDoc(roomName, docYDoc)
+      const base = new Y.Doc()
+      Y.applyUpdate(base, docReadState ?? Y.encodeStateAsUpdate(docYDoc))
+      const before = Y.encodeStateVector(docYDoc)
+      const changed = setSharedDocText(base, text, {
+        by: `agent-${entry.id}`,
+        byName: entry.name,
+      })
+      Y.applyUpdate(docYDoc, Y.encodeStateAsUpdate(base))
+      if (!changed) return "The document already reads exactly like that."
+      await persistSharedDoc(roomName, docYDoc)
       local
-        .publishData(new TextEncoder().encode(JSON.stringify(saved)), {
-          reliable: true,
-          topic: DataTopic.Doc,
-        })
+        .publishData(
+          new TextEncoder().encode(
+            JSON.stringify({
+              type: "doc-sync",
+              update: encodeDocDiffB64(docYDoc, before),
+            }),
+          ),
+          {
+            reliable: true,
+            topic: DataTopic.Doc,
+          },
+        )
         .catch(() => undefined)
       // The agent's caret sweeps through what it just wrote, then leaves —
       // the update lands instantly; this is how the room sees who did it.
@@ -534,7 +567,8 @@ export default defineAgent({
     // brain injects it into the first turn on every path — voice, chat
     // mention, or realtime ask_agent delegation.
     const priorTranscript = formatTranscript(await fetchTranscript(roomName))
-    const priorDoc = formatSharedDoc(await fetchSharedDoc(roomName))
+    await readDocText()
+    const priorDoc = formatSharedDoc(readSharedDoc(docYDoc))
     const canvasSnapshot = await fetchCanvas(roomName)
     mergeIntoCanvasCache(canvasSnapshot.records)
     const priorCanvas = formatCanvas(canvasSnapshot)
@@ -586,6 +620,9 @@ export default defineAgent({
         parts.push(
           `[${docSince.byName || docSince.by} updated the shared document. ${formatSharedDoc(docSince)}]`,
         )
+        // The brain is about to see this text — writes it makes now are
+        // composed against it, so future splices diff from here.
+        docReadState = Y.encodeStateAsUpdate(docYDoc)
         docSince = null
       }
       const outcomes = canvasOutcomes.splice(0)
@@ -736,7 +773,7 @@ export default defineAgent({
         // speaks, so barge-in has to be heard locally. Same prewarmed VAD the
         // pipeline path uses for turn detection.
         vad: ctx.proc.userData.vad as silero.VAD | undefined,
-        readDoc: async () => (await fetchSharedDoc(roomName)).text,
+        readDoc: readDocText,
         writeDoc: publishDoc,
         readCanvas,
         drawCanvas: publishCanvasOps,
@@ -1002,16 +1039,18 @@ export default defineAgent({
           // ignore malformed chat messages
         }
       } else if (topic === DataTopic.Doc) {
-        // A participant saved the shared document (DocPanel broadcasts every
-        // save). Own writes never arrive here — LiveKit doesn't echo data
-        // back to the sender — so this is always someone else's edit.
+        // Someone else edited the shared document: fold their CRDT update
+        // into the worker's replica. Own writes never arrive here — LiveKit
+        // doesn't echo data back to the sender.
         try {
-          const doc = sharedDocSchema.parse(
+          const msg = docSyncMessageSchema.parse(
             JSON.parse(new TextDecoder().decode(payload)),
           )
+          applyDocUpdateB64(docYDoc, msg.update)
+          const view = readSharedDoc(docYDoc)
           docSince = {
-            ...doc,
-            byName: sender?.name || sender?.identity || doc.byName,
+            ...view,
+            byName: sender?.name || sender?.identity || view.byName,
           }
         } catch {
           // ignore malformed doc messages

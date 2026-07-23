@@ -1,13 +1,14 @@
 import type { Room } from "@livekit/rtc-node"
 import {
+  applyDocUpdateB64,
   type CanvasDiff,
   type CanvasSnapshot,
   canvasSnapshotSchema,
   emptyCanvasSnapshot,
-  emptySharedDoc,
+  encodeDocStateB64,
   parseParticipantMeta,
   type SharedDoc,
-  sharedDocSchema,
+  type Y,
 } from "@meet/shared"
 import { describeCanvas } from "./canvas-records.js"
 import type { Brain } from "./looped-webhook.js"
@@ -62,8 +63,12 @@ export async function fetchTranscript(
   }
 }
 
-/** The room's shared markdown document. Empty on any failure. */
-export async function fetchSharedDoc(room: string): Promise<SharedDoc> {
+/**
+ * Fold the store's snapshot of the shared doc into `ydoc`. Idempotent —
+ * applying the same state twice is a no-op — so callers refresh freely
+ * before reading or writing. Failures leave the doc as it was.
+ */
+export async function seedSharedDoc(room: string, ydoc: Y.Doc): Promise<void> {
   try {
     const res = await fetch(
       `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/doc`,
@@ -71,35 +76,21 @@ export async function fetchSharedDoc(room: string): Promise<SharedDoc> {
         headers: { authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}` },
       },
     )
-    if (!res.ok) return emptySharedDoc
-    const body = (await res.json()) as { doc?: unknown }
-    const parsed = sharedDocSchema.safeParse(body.doc)
-    return parsed.success ? parsed.data : emptySharedDoc
+    if (!res.ok) return
+    const body = (await res.json()) as { snapshot?: unknown }
+    if (typeof body.snapshot === "string" && body.snapshot) {
+      applyDocUpdateB64(ydoc, body.snapshot)
+    }
   } catch {
-    return emptySharedDoc
+    // reads fall back to whatever the local doc already holds
   }
 }
 
-/**
- * Writes the shared document on the agent's behalf, at whatever revision the
- * store is on right now — the agent thinks for seconds at a time, and the
- * humans keep typing while it does, so the revision it started from is
- * routinely stale by the time it finishes.
- */
-export async function saveSharedDoc(
+/** Persist the doc's full state to the store (merged there, never clobbered). */
+export async function persistSharedDoc(
   room: string,
-  text: string,
-  by: string,
-  byName: string,
-): Promise<SharedDoc | null> {
-  const current = await fetchSharedDoc(room)
-  const update: SharedDoc = {
-    text,
-    rev: current.rev + 1,
-    by,
-    byName,
-    at: Date.now(),
-  }
+  ydoc: Y.Doc,
+): Promise<boolean> {
   try {
     const res = await fetch(
       `${CONTROL_URL}/rooms/${encodeURIComponent(room)}/doc`,
@@ -109,13 +100,12 @@ export async function saveSharedDoc(
           "content-type": "application/json",
           authorization: `Bearer ${process.env.BRIDGE_TOKEN ?? ""}`,
         },
-        body: JSON.stringify(update),
+        body: JSON.stringify({ update: encodeDocStateB64(ydoc) }),
       },
     )
-    if (!res.ok) return null
-    return update
+    return res.ok
   } catch {
-    return null
+    return false
   }
 }
 

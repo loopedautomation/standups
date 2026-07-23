@@ -3,25 +3,25 @@ import {
   type AgentControl,
   agentActivityEventSchema,
   agentControlSchema,
+  applyDocUpdateB64,
   type CanvasRecord,
   canvasOpBatchSchema,
   canvasOpSchema,
   chatMessageSchema,
   chatOpSchema,
   chunkCanvasChanges,
-  clampIncomingDocRev,
   defaultRoomSettings,
   describeAgentControl,
-  emptySharedDoc,
-  MAX_DOC_REV,
+  docSyncMessageSchema,
+  encodeDocDiffB64,
+  encodeDocStateB64,
   mentionsName,
   mergeCanvasRecord,
-  mergeSharedDoc,
-  nextDocRev,
   parseRoomSettings,
-  type SharedDoc,
-  sharedDocSchema,
+  readSharedDoc,
+  setSharedDocText,
   spokenMentionRegExp,
+  Y,
 } from "./index.js"
 
 describe("agentControlSchema", () => {
@@ -160,123 +160,108 @@ describe("parseRoomSettings", () => {
   })
 })
 
-function doc(overrides: Partial<SharedDoc>): SharedDoc {
-  return { ...emptySharedDoc, by: "a", byName: "A", ...overrides }
-}
+describe("shared doc CRDT sync", () => {
+  const author = { by: "u1", byName: "Amin" }
 
-describe("sharedDocSchema", () => {
-  it("accepts a document update", () => {
-    expect(
-      sharedDocSchema.parse({
-        text: "# Plan",
-        rev: 3,
-        by: "u1",
-        byName: "Amin",
-        at: 1000,
-      }).rev,
-    ).toBe(3)
+  it("round-trips text and metadata through a full-state update", () => {
+    const a = new Y.Doc()
+    setSharedDocText(a, "# Plan", author)
+    const b = new Y.Doc()
+    expect(applyDocUpdateB64(b, encodeDocStateB64(a))).toBe(true)
+    const view = readSharedDoc(b)
+    expect(view.text).toBe("# Plan")
+    expect(view.byName).toBe("Amin")
+    expect(view.rev).toBeGreaterThan(0)
   })
 
-  it("rejects a negative or fractional revision", () => {
-    for (const rev of [-1, 1.5]) {
-      expect(sharedDocSchema.safeParse({ ...doc({}), rev }).success).toBe(false)
-    }
+  it("merges concurrent edits from two peers — nobody's keystroke drops", () => {
+    const a = new Y.Doc()
+    setSharedDocText(a, "hello world", author)
+    const b = new Y.Doc()
+    applyDocUpdateB64(b, encodeDocStateB64(a))
+    // Divergent edits at opposite ends, made without seeing each other.
+    setSharedDocText(a, "HEY hello world", author)
+    setSharedDocText(b, "hello world !!!", { by: "u2", byName: "Bea" })
+    // Exchange full states both ways.
+    applyDocUpdateB64(b, encodeDocStateB64(a))
+    applyDocUpdateB64(a, encodeDocStateB64(b))
+    expect(readSharedDoc(a).text).toBe("HEY hello world !!!")
+    expect(readSharedDoc(b).text).toBe("HEY hello world !!!")
   })
 
-  it("rejects a revision above the cap (the doc-freeze attack)", () => {
+  it("an agent's full-document rewrite merges with a concurrent human edit", () => {
+    // The daily case: the agent rewrites a section while a person types in
+    // another one. Under LWW one of them vanished; here both land.
+    const human = new Y.Doc()
+    setSharedDocText(human, "# Plan\n\n## Goals\n\n## Risks\n", author)
+    const agent = new Y.Doc()
+    applyDocUpdateB64(agent, encodeDocStateB64(human))
+    setSharedDocText(
+      agent,
+      "# Plan\n\n## Goals\n- ship the CRDT\n\n## Risks\n",
+      { by: "agent-scout", byName: "Scout" },
+    )
+    setSharedDocText(human, "# Plan\n\n## Goals\n\n## Risks\n- none!\n", author)
+    applyDocUpdateB64(human, encodeDocStateB64(agent))
+    applyDocUpdateB64(agent, encodeDocStateB64(human))
+    const merged = readSharedDoc(human).text
+    expect(merged).toContain("- ship the CRDT")
+    expect(merged).toContain("- none!")
+    expect(readSharedDoc(agent).text).toBe(merged)
+  })
+
+  it("incremental diffs since a state vector carry only the new edit", () => {
+    const a = new Y.Doc()
+    setSharedDocText(a, "one", author)
+    const b = new Y.Doc()
+    applyDocUpdateB64(b, encodeDocStateB64(a))
+    const since = Y.encodeStateVector(a)
+    setSharedDocText(a, "one two", author)
+    applyDocUpdateB64(b, encodeDocDiffB64(a, since))
+    expect(readSharedDoc(b).text).toBe("one two")
+  })
+
+  it("converges regardless of update arrival order", () => {
+    const src = new Y.Doc()
+    const updates: string[] = []
+    src.on("update", (u: Uint8Array) => {
+      updates.push(encodeDocStateB64(src))
+      void u
+    })
+    setSharedDocText(src, "a", author)
+    setSharedDocText(src, "a b", author)
+    setSharedDocText(src, "a b c", author)
+    const forward = new Y.Doc()
+    for (const u of updates) applyDocUpdateB64(forward, u)
+    const backward = new Y.Doc()
+    for (const u of [...updates].reverse()) applyDocUpdateB64(backward, u)
+    expect(readSharedDoc(forward).text).toBe("a b c")
+    expect(readSharedDoc(backward).text).toBe("a b c")
+  })
+
+  it("no-op writes report false and bump nothing", () => {
+    const a = new Y.Doc()
+    setSharedDocText(a, "same", author)
+    const rev = readSharedDoc(a).rev
+    expect(setSharedDocText(a, "same", author)).toBe(false)
+    expect(readSharedDoc(a).rev).toBe(rev)
+  })
+
+  it("drops garbage updates instead of throwing", () => {
+    const a = new Y.Doc()
+    expect(applyDocUpdateB64(a, "!!!not-base64-yjs!!!")).toBe(false)
+  })
+
+  it("bounds broadcast payloads via the message schema", () => {
     expect(
-      sharedDocSchema.safeParse({ ...doc({}), rev: MAX_DOC_REV + 1 }).success,
+      docSyncMessageSchema.safeParse({ type: "doc-sync", update: "" }).success,
     ).toBe(false)
     expect(
-      sharedDocSchema.safeParse({ ...doc({}), rev: Number.MAX_SAFE_INTEGER })
-        .success,
+      docSyncMessageSchema.safeParse({
+        type: "doc-sync",
+        update: "x".repeat(1_500_001),
+      }).success,
     ).toBe(false)
-  })
-
-  it("bounds oversized attribution fields", () => {
-    const big = "x".repeat(200)
-    expect(sharedDocSchema.safeParse({ ...doc({}), by: big }).success).toBe(
-      false,
-    )
-    expect(sharedDocSchema.safeParse({ ...doc({}), byName: big }).success).toBe(
-      false,
-    )
-  })
-})
-
-describe("doc revision clamping (freeze defense)", () => {
-  it("increments normally below the cap", () => {
-    expect(nextDocRev(0)).toBe(1)
-    expect(nextDocRev(41)).toBe(42)
-  })
-
-  it("never exceeds the cap, so validation can't overflow", () => {
-    expect(nextDocRev(MAX_DOC_REV)).toBe(MAX_DOC_REV)
-    expect(nextDocRev(MAX_DOC_REV - 1)).toBe(MAX_DOC_REV)
-    // The clamped rev always passes the schema — the freeze can't happen.
-    expect(
-      sharedDocSchema.safeParse({ ...doc({}), rev: nextDocRev(MAX_DOC_REV) })
-        .success,
-    ).toBe(true)
-  })
-
-  it("clamps a malicious incoming rev to at most one past what we hold", () => {
-    // Attacker PUTs rev at the ceiling while the stored doc is at 3.
-    expect(clampIncomingDocRev(MAX_DOC_REV, 3)).toBe(4)
-    // A normal +1 edit is untouched.
-    expect(clampIncomingDocRev(4, 3)).toBe(4)
-    // A stale/lower rev is left as-is (mergeSharedDoc discards it).
-    expect(clampIncomingDocRev(2, 3)).toBe(2)
-  })
-})
-
-describe("mergeSharedDoc", () => {
-  it("takes the newer revision", () => {
-    const current = doc({ text: "old", rev: 1 })
-    const incoming = doc({ text: "new", rev: 2 })
-    expect(mergeSharedDoc(current, incoming).text).toBe("new")
-  })
-
-  it("ignores a stale broadcast that arrives late", () => {
-    // The case this exists for: a slow peer's older edit landing after a
-    // newer one would otherwise wipe out the newer text.
-    const current = doc({ text: "new", rev: 5 })
-    const incoming = doc({ text: "stale", rev: 4 })
-    expect(mergeSharedDoc(current, incoming).text).toBe("new")
-  })
-
-  it("breaks a revision tie on timestamp", () => {
-    const current = doc({ text: "first", rev: 2, at: 100 })
-    const incoming = doc({ text: "second", rev: 2, at: 200 })
-    expect(mergeSharedDoc(current, incoming).text).toBe("second")
-  })
-
-  it("breaks a full tie the same way on every peer", () => {
-    const mine = doc({ text: "mine", rev: 2, at: 100, by: "aaa" })
-    const theirs = doc({ text: "theirs", rev: 2, at: 100, by: "zzz" })
-    // Both sides must land on the same text, whichever way round they see
-    // the pair — otherwise the room silently diverges.
-    expect(mergeSharedDoc(mine, theirs).text).toBe("theirs")
-    expect(mergeSharedDoc(theirs, mine).text).toBe("theirs")
-  })
-
-  it("converges regardless of the order updates arrive in", () => {
-    const updates = [
-      doc({ text: "a", rev: 1, at: 10, by: "u1" }),
-      doc({ text: "b", rev: 2, at: 20, by: "u2" }),
-      doc({ text: "c", rev: 2, at: 20, by: "u3" }),
-      doc({ text: "d", rev: 3, at: 30, by: "u1" }),
-    ]
-    const fold = (order: SharedDoc[]) =>
-      order.reduce(mergeSharedDoc, emptySharedDoc).text
-    expect(fold(updates)).toBe("d")
-    expect(fold([...updates].reverse())).toBe("d")
-    expect(fold([updates[2], updates[0], updates[3], updates[1]])).toBe("d")
-  })
-
-  it("accepts the first real edit over an empty document", () => {
-    const incoming = doc({ text: "# Plan", rev: 1, at: 5 })
-    expect(mergeSharedDoc(emptySharedDoc, incoming).text).toBe("# Plan")
   })
 })
 

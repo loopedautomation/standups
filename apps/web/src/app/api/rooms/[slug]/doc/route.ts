@@ -1,4 +1,4 @@
-import { sharedDocSchema } from "@meet/shared"
+import { docSnapshotPutSchema } from "@meet/shared"
 import { NextResponse } from "next/server"
 import { bridgeFetch } from "@/lib/server/bridge"
 import { isKicked } from "@/lib/server/kicked"
@@ -55,22 +55,19 @@ export async function PUT(request: Request, { params }: Params) {
   if (!participant) {
     return NextResponse.json({ error: "not authorized" }, { status: 401 })
   }
-  const body = sharedDocSchema.safeParse(await request.json().catch(() => null))
+  const body = docSnapshotPutSchema.safeParse(
+    await request.json().catch(() => null),
+  )
   if (!body.success) {
-    return NextResponse.json({ error: "invalid doc" }, { status: 400 })
+    return NextResponse.json({ error: "invalid doc update" }, { status: 400 })
   }
-  // Authorship is server-set from the verified token — a caller must not be
-  // able to sign someone else's name to an edit.
-  const doc = {
-    ...body.data,
-    by: participant.identity,
-    byName: participant.name,
-  }
+  // Attribution lives inside the CRDT's metadata and is display-only; what
+  // matters here is that only a verified member can write at all (above).
   try {
     const res = await bridgeFetch(`/rooms/${slug}/doc`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(doc),
+      body: JSON.stringify(body.data),
     })
     return NextResponse.json(await res.json(), { status: res.status })
   } catch {

@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "yjs": "^13.6.31",
     "zod": "catalog:"
   },
   "devDependencies": {
