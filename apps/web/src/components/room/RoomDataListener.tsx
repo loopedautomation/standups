@@ -6,6 +6,7 @@ import {
   canvasDiffSchema,
   canvasSnapshotSchema,
   chatMessageSchema,
+  chatOpSchema,
   DataTopic,
   docPresenceSchema,
   parseParticipantMeta,
@@ -34,8 +35,10 @@ import {
   addChatMessage,
   clearAgentTyping,
   pruneTypingAgents,
+  removeChatMessage,
   resetRoomData,
   setAgentTyping,
+  updateChatMessage,
 } from "@/stores/roomData"
 
 /** Always-mounted subscriber: chat and agent activity survive panel toggling. */
@@ -44,24 +47,40 @@ export function RoomDataListener({ slug }: { slug: string }) {
 
   useDataChannel(DataTopic.Chat, (msg) => {
     try {
-      const parsed = chatMessageSchema.safeParse(
-        JSON.parse(new TextDecoder().decode(msg.payload)),
-      )
-      if (!parsed.success) return
-      // The payload's claimed sender is replaced with the actual LiveKit
-      // sender — anyone can type any name into a crafted data message.
-      addChatMessage(
-        msg.from
-          ? {
-              ...parsed.data,
-              from: msg.from.identity,
-              fromName: msg.from.name || msg.from.identity,
-            }
-          : parsed.data,
-      )
-      // The message landing is itself the end of composing, so clear any
-      // lingering "typing…" for its sender even if the stop signal is in flight.
-      if (msg.from) clearAgentTyping(msg.from.identity)
+      const raw = JSON.parse(new TextDecoder().decode(msg.payload))
+
+      const parsed = chatMessageSchema.safeParse(raw)
+      if (parsed.success) {
+        // The payload's claimed sender is replaced with the actual LiveKit
+        // sender — anyone can type any name into a crafted data message.
+        addChatMessage(
+          msg.from
+            ? {
+                ...parsed.data,
+                from: msg.from.identity,
+                fromName: msg.from.name || msg.from.identity,
+              }
+            : parsed.data,
+        )
+        // The message landing is itself the end of composing, so clear any
+        // lingering "typing…" for its sender even if the stop signal is in flight.
+        if (msg.from) clearAgentTyping(msg.from.identity)
+        return
+      }
+
+      // Not a new message — check whether it's an edit/delete op instead.
+      // Same rule as above: the op is only honored against the actual
+      // LiveKit sender, checked inside the store against the original
+      // message's author, never against whatever the payload claims.
+      if (!msg.from) return
+      const op = chatOpSchema.safeParse(raw)
+      if (!op.success) return
+      const by = msg.from.identity
+      if (op.data.op === "edit") {
+        updateChatMessage(op.data.id, by, op.data.text, op.data.at)
+      } else {
+        removeChatMessage(op.data.id, by)
+      }
     } catch {}
   })
 

@@ -398,8 +398,31 @@ export const chatMessageSchema = z.object({
   fromName: z.string().max(128),
   text: z.string().max(8000),
   at: z.number(),
+  /** Set when the author edits the message after sending. */
+  editedAt: z.number().optional(),
 })
 export type ChatMessage = z.infer<typeof chatMessageSchema>
+
+/**
+ * Edit/delete ops, broadcast on the same `chat` topic alongside regular
+ * messages. Deliberately shaped nothing like `chatMessageSchema` (no
+ * `from`/`fromName`/`text` triplet) so a listener that tries the message
+ * schema first rejects an op cleanly instead of half-matching it.
+ */
+export const chatOpSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("edit"),
+    id: z.string().max(64),
+    text: z.string().max(8000),
+    at: z.number(),
+  }),
+  z.object({
+    op: z.literal("delete"),
+    id: z.string().max(64),
+    at: z.number(),
+  }),
+])
+export type ChatOp = z.infer<typeof chatOpSchema>
 
 /**
  * The meeting's shared markdown document, on the `doc` topic.

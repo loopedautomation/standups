@@ -6,6 +6,8 @@ import {
   type CanvasRecord,
   canvasOpBatchSchema,
   canvasOpSchema,
+  chatMessageSchema,
+  chatOpSchema,
   chunkCanvasChanges,
   clampIncomingDocRev,
   defaultRoomSettings,
@@ -461,5 +463,44 @@ describe("spokenMentionRegExp", () => {
   it("matches nothing for an all-punctuation name", () => {
     expect(spokenMentionRegExp("++").test("anything at all")).toBe(false)
     expect(spokenMentionRegExp("++").test("")).toBe(false)
+  })
+})
+
+describe("chatMessageSchema / chatOpSchema", () => {
+  it("accepts a plain message, with or without an editedAt", () => {
+    const base = {
+      id: "m1",
+      from: "yashay",
+      fromName: "Yashay",
+      text: "hi",
+      at: 1,
+    }
+    expect(chatMessageSchema.safeParse(base).success).toBe(true)
+    expect(chatMessageSchema.safeParse({ ...base, editedAt: 2 }).success).toBe(
+      true,
+    )
+  })
+
+  it("accepts edit and delete ops", () => {
+    expect(
+      chatOpSchema.safeParse({ op: "edit", id: "m1", text: "hi!", at: 2 })
+        .success,
+    ).toBe(true)
+    expect(
+      chatOpSchema.safeParse({ op: "delete", id: "m1", at: 2 }).success,
+    ).toBe(true)
+  })
+
+  it("rejects an edit with no text", () => {
+    expect(
+      chatOpSchema.safeParse({ op: "edit", id: "m1", at: 2 }).success,
+    ).toBe(false)
+  })
+
+  it("never matches a chat op against the message schema, or vice versa", () => {
+    const op = { op: "delete", id: "m1", at: 2 }
+    expect(chatMessageSchema.safeParse(op).success).toBe(false)
+    const message = { id: "m1", from: "a", fromName: "A", text: "hi", at: 1 }
+    expect(chatOpSchema.safeParse(message).success).toBe(false)
   })
 })

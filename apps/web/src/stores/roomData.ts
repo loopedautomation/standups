@@ -25,6 +25,36 @@ export function addChatMessage(message: ChatMessage) {
   $chatMessages.set([...current.slice(-199), message])
 }
 
+/**
+ * Applies an edit, but only if `by` matches the message's original author —
+ * the wire op's sender is the verified LiveKit identity, never the payload's
+ * own claim, so this is the actual authorization check, not just attribution.
+ */
+export function updateChatMessage(
+  id: string,
+  by: string,
+  text: string,
+  at: number,
+) {
+  const current = $chatMessages.get()
+  const idx = current.findIndex((m) => m.id === id)
+  if (idx === -1) return // gone (deleted, or never arrived) — no-op, not a resurrection
+  const existing = current[idx]
+  if (existing.from !== by) return
+  if (existing.editedAt && existing.editedAt >= at) return // a newer edit already won
+  const next = current.slice()
+  next[idx] = { ...existing, text, editedAt: at }
+  $chatMessages.set(next)
+}
+
+/** Same authorization rule as `updateChatMessage`: only the author may delete. */
+export function removeChatMessage(id: string, by: string) {
+  const current = $chatMessages.get()
+  const existing = current.find((m) => m.id === id)
+  if (!existing || existing.from !== by) return
+  $chatMessages.set(current.filter((m) => m.id !== id))
+}
+
 export function addAgentActivity(event: AgentActivityEvent) {
   if (event.type === "stats") {
     $agentStats.set({ ...$agentStats.get(), [event.agentId]: event })

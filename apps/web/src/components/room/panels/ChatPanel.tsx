@@ -1,9 +1,9 @@
 "use client"
 
 import { useDataChannel, useLocalParticipant } from "@livekit/components-react"
-import { type ChatMessage, DataTopic } from "@meet/shared"
+import { type ChatMessage, type ChatOp, DataTopic } from "@meet/shared"
 import { useStore } from "@nanostores/react"
-import { SendHorizontal } from "lucide-react"
+import { Pencil, SendHorizontal, Trash2 } from "lucide-react"
 import { nanoid } from "nanoid"
 import { useEffect, useRef, useState } from "react"
 import {
@@ -13,7 +13,13 @@ import {
   mentionQuery,
   useMentionables,
 } from "@/components/room/panels/MentionPicker"
-import { $chatMessages, $typingAgents, addChatMessage } from "@/stores/roomData"
+import {
+  $chatMessages,
+  $typingAgents,
+  addChatMessage,
+  removeChatMessage,
+  updateChatMessage,
+} from "@/stores/roomData"
 
 /**
  * Render message text with URLs as real links. `break-all` on the anchor so
@@ -45,12 +51,131 @@ function typingLabel(names: string[]): string {
   return `${names.length} agents are typing`
 }
 
+function ChatMessageRow({
+  message,
+  own,
+  grouped,
+  isEditing,
+  editText,
+  onEditTextChange,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  confirmingDelete,
+  onConfirmDelete,
+  onDelete,
+  onCancelDeleteConfirm,
+}: {
+  message: ChatMessage
+  own: boolean
+  grouped: boolean
+  isEditing: boolean
+  editText: string
+  onEditTextChange: (text: string) => void
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: () => void
+  confirmingDelete: boolean
+  onConfirmDelete: () => void
+  onDelete: () => void
+  onCancelDeleteConfirm: () => void
+}) {
+  return (
+    <li
+      className={`group chat ${own ? "chat-end" : "chat-start"} ${grouped ? "!pt-0" : ""}`}
+    >
+      {!grouped && (
+        <div className="chat-header text-base-content/50 text-xs">
+          {!own && (
+            <span className="mr-1 font-medium text-base-content">
+              {message.fromName}
+            </span>
+          )}
+          <time>
+            {new Date(message.at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+        </div>
+      )}
+      {isEditing ? (
+        <div className="chat-bubble min-w-0 max-w-[85%] bg-transparent p-0">
+          <input
+            autoFocus
+            className="input input-sm w-full"
+            value={editText}
+            onChange={(e) => onEditTextChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                onSaveEdit()
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                onCancelEdit()
+              }
+            }}
+            onBlur={onSaveEdit}
+          />
+        </div>
+      ) : (
+        <div
+          className={`chat-bubble min-w-0 max-w-[85%] whitespace-pre-wrap break-words text-sm ${
+            own ? "chat-bubble-primary" : ""
+          }`}
+        >
+          {linkify(message.text)}
+        </div>
+      )}
+      {own && !isEditing && (
+        <div className="chat-footer flex items-center gap-1 text-base-content/40 text-xs">
+          {message.editedAt && <span>edited</span>}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs btn-circle opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Edit message"
+            title="Edit"
+            onClick={onStartEdit}
+          >
+            <Pencil className="size-3" />
+          </button>
+          {confirmingDelete ? (
+            <button
+              type="button"
+              className="btn btn-error btn-xs"
+              onClick={onDelete}
+              onBlur={onCancelDeleteConfirm}
+            >
+              Delete?
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs btn-circle text-error opacity-0 transition-opacity group-hover:opacity-100"
+              aria-label="Delete message"
+              title="Delete"
+              onClick={onConfirmDelete}
+            >
+              <Trash2 className="size-3" />
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
 export function ChatPanel() {
   const { localParticipant } = useLocalParticipant()
   const messages = useStore($chatMessages)
   const typing = useStore($typingAgents)
   const typingNames = Object.values(typing).map((t) => t.name)
   const [draft, setDraft] = useState("")
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState("")
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null,
+  )
   const bottomRef = useRef<HTMLDivElement>(null)
   const mentionables = useMentionables()
   const query = mentionQuery(draft)
@@ -101,6 +226,41 @@ export function ChatPanel() {
     })
   }
 
+  const startEdit = (m: ChatMessage) => {
+    setConfirmingDeleteId(null)
+    setEditingId(m.id)
+    setEditText(m.text)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditText("")
+  }
+
+  const saveEdit = async (id: string) => {
+    const text = editText.trim()
+    setEditingId(null)
+    setEditText("")
+    if (!text) return
+    const at = Date.now()
+    updateChatMessage(id, localParticipant.identity, text, at)
+    const op: ChatOp = { op: "edit", id, text, at }
+    await send(new TextEncoder().encode(JSON.stringify(op)), {
+      topic: DataTopic.Chat,
+      reliable: true,
+    })
+  }
+
+  const deleteMessage = async (id: string) => {
+    setConfirmingDeleteId(null)
+    const op: ChatOp = { op: "delete", id, at: Date.now() }
+    removeChatMessage(id, localParticipant.identity)
+    await send(new TextEncoder().encode(JSON.stringify(op)), {
+      topic: DataTopic.Chat,
+      reliable: true,
+    })
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
@@ -116,36 +276,26 @@ export function ChatPanel() {
           // the repeated name/stamp is dropped.
           const prev = messages[i - 1]
           const minute = (at: number) => Math.floor(at / 60_000)
-          const grouped =
-            prev && prev.from === m.from && minute(prev.at) === minute(m.at)
+          const grouped = Boolean(
+            prev && prev.from === m.from && minute(prev.at) === minute(m.at),
+          )
           return (
-            <li
+            <ChatMessageRow
               key={m.id}
-              className={`chat ${own ? "chat-end" : "chat-start"} ${grouped ? "!pt-0" : ""}`}
-            >
-              {!grouped && (
-                <div className="chat-header text-base-content/50 text-xs">
-                  {!own && (
-                    <span className="mr-1 font-medium text-base-content">
-                      {m.fromName}
-                    </span>
-                  )}
-                  <time>
-                    {new Date(m.at).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                </div>
-              )}
-              <div
-                className={`chat-bubble min-w-0 max-w-[85%] whitespace-pre-wrap break-words text-sm ${
-                  own ? "chat-bubble-primary" : ""
-                }`}
-              >
-                {linkify(m.text)}
-              </div>
-            </li>
+              message={m}
+              own={own}
+              grouped={grouped}
+              isEditing={editingId === m.id}
+              editText={editText}
+              onEditTextChange={setEditText}
+              onStartEdit={() => startEdit(m)}
+              onCancelEdit={cancelEdit}
+              onSaveEdit={() => saveEdit(m.id)}
+              confirmingDelete={confirmingDeleteId === m.id}
+              onConfirmDelete={() => setConfirmingDeleteId(m.id)}
+              onDelete={() => deleteMessage(m.id)}
+              onCancelDeleteConfirm={() => setConfirmingDeleteId(null)}
+            />
           )
         })}
         <div ref={bottomRef} />
