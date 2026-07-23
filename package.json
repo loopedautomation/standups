@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Open-source, self-hostable meeting rooms with first-class AI agent participants",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "packageManager": "pnpm@10.12.1",
   "scripts": {
     "dev": "docker compose -f docker-compose.yaml -f docker-compose.build.yaml -f docker-compose.debug.yaml up -d --build livekit agent-bridge demo-agent && (docker compose -f docker-compose.yaml -f docker-compose.build.yaml -f docker-compose.debug.yaml stop web >/dev/null 2>&1 || true) && infisical run --projectId=396f8208-593a-4966-8943-97621affc25a --env=dev --path=/apps/web --path=/shared -- pnpm --filter @meet/web dev",

@@ -5,7 +5,7 @@
 
 <div align="center">
 
-# Looped Meet<br/><sub><b>Dial your agent into your next meeting.</b></sub><br/><br/>[![CI](https://github.com/loopedautomation/meet/actions/workflows/ci.yaml/badge.svg)](https://github.com/loopedautomation/meet/actions/workflows/ci.yaml) [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE) [![Powered by looped-af](https://img.shields.io/badge/powered%20by-looped--af-8b5cf6)](https://github.com/loopedautomation/agent-framework)
+# Looped Meet<br/><sub><b>Dial your agent into your next meeting.</b></sub><br/><br/>[![CI](https://github.com/loopedautomation/meet/actions/workflows/ci.yaml/badge.svg)](https://github.com/loopedautomation/meet/actions/workflows/ci.yaml) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue.svg)](./LICENSE) [![Powered by looped-af](https://img.shields.io/badge/powered%20by-looped--af-8b5cf6)](https://github.com/loopedautomation/agent-framework)
 
 </div>
 
@@ -112,4 +112,4 @@ The looped look lives in `apps/web/src/styles/` as DaisyUI themes (`themes.css`,
 
 ## License
 
-[Apache 2.0](./LICENSE)
+[FSL-1.1-ALv2](./LICENSE) — the [Functional Source License](https://fsl.software). You can use, copy, modify and redistribute Looped Meet for any purpose except building a competing commercial product or service. Each version automatically converts to [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) two years after its release.
