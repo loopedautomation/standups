@@ -50,12 +50,18 @@ Colors: `black` (default), `grey`, `blue`, `light-blue`, `violet`,
 ## Layout that stays legible
 
 - Coordinates are page pixels on roughly a **1600x1000** area, origin
-  top-left. Lay diagrams out left-to-right or top-down starting near (0,0).
+  top-left — **`y` grows downward**. Lay diagrams out left-to-right or
+  top-down starting near (0,0).
 - Boxes around **160x80**, with **~80px gaps**. Never place two shapes at
   the same spot.
+- For charts and aligned layouts, compute positions with arithmetic, never
+  by eye: bars on a shared baseline all end at the same `y + h`, so a
+  taller bar starts at a **smaller** `y`; draw the axes from that same
+  baseline. A shape placed inside a larger frame (a plot area, a region
+  box) is deliberate nesting and stays where you put it.
 - **Omit `x`/`y` on a create to auto-place it** clear of existing shapes.
-  A create that would bury an existing shape is auto-nudged to free space —
-  the result tells you where it actually landed.
+  A create that would land on an existing shape's footprint is auto-nudged
+  to free space — the result tells you where it actually landed.
 - Track your own layout: you placed the shapes, so you know where they are.
   Results and board updates arrive in your context with exact positions —
   trust those over memory.

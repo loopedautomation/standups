@@ -129,16 +129,18 @@ type Box = { x: number; y: number; w: number; h: number }
 const PLACE_GAP = 80
 
 /**
- * Enough of `b` is buried under `a` that both stop being readable. Touching
- * or slightly overlapping neighbours are deliberate layout; a shape landing
- * on top of another is the failure mode this guards against.
+ * The two shapes land on near enough the same footprint that neither stays
+ * readable — a repeated create stacking on top of an existing shape, the
+ * failure mode this guards against. Measured against the LARGER shape: a
+ * small shape placed inside a big one (a bar in a chart frame, a note in a
+ * region box) is deliberate nesting, not a burial.
  */
 function overlapsHeavily(a: Box, b: Box): boolean {
   const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
   const iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
   if (ix <= 0 || iy <= 0) return false
-  const smaller = Math.min(a.w * a.h, b.w * b.h)
-  return smaller > 0 && (ix * iy) / smaller > 0.4
+  const larger = Math.max(a.w * a.h, b.w * b.h)
+  return larger > 0 && (ix * iy) / larger > 0.4
 }
 
 /** Shapes a new element must keep clear of: live, top-level, with area. */

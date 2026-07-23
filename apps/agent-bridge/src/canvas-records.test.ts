@@ -266,6 +266,22 @@ describe("buildCanvasRecords", () => {
     expect(b.x).toBe(0)
   })
 
+  it("leaves a shape drawn inside a larger frame where it was put", () => {
+    // A bar chart: bars sit inside the plot frame on purpose. Nudging them
+    // out is what scattered chart pieces away from their axes.
+    const first = build([
+      { op: "rect", id: "frame", x: 0, y: 0, w: 600, h: 300 },
+    ])
+    const second = build(
+      [{ op: "rect", id: "bar1", x: 60, y: 120, w: 60, h: 160, fill: "solid" }],
+      first.changes,
+    )
+    const bar = elementOf(second.changes, "agent-bar1")
+    expect(bar.x).toBe(60)
+    expect(bar.y).toBe(120)
+    expect(second.warnings).toEqual([])
+  })
+
   it("leaves deliberate near-neighbours alone", () => {
     const first = build([{ op: "rect", id: "a", x: 0, y: 0, w: 160, h: 80 }])
     // 20px of overlap is a styling choice, not a burial.

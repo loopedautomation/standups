@@ -29,7 +29,9 @@ export const CANVAS_PROTOCOL_NOTE =
   '{"op":"arrow","id","from?","to?","label?"} (from/to are shape ids), ' +
   '{"op":"move","id","x","y"}, {"op":"update","id","label?","text?",' +
   '"color?","w?","h?"}, {"op":"delete","id"}, {"op":"clear"}. Coordinates ' +
-  "are page pixels on roughly a 1600x1000 area; omit x/y on creates to " +
+  "are page pixels on roughly a 1600x1000 area, y growing downward from " +
+  "the top-left origin — align related shapes by arithmetic (bars on a " +
+  "shared baseline end at the same y+h). Omit x/y on creates to " +
   "auto-place clear of existing shapes. Give every shape a short memorable " +
   "id so you can connect, move or update it later. If you have a whiteboard " +
   "skill, read it before drawing. The block is drawn, not spoken; any text " +

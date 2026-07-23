@@ -448,10 +448,17 @@ export default defineAgent({
      * clients exchange among themselves.
      */
     const publishCanvasOps = async (ops: CanvasOp[]): Promise<string> => {
+      // Build against the store merged into the live cache, not the store
+      // alone: client snapshot PUTs trail their edits by seconds, and an
+      // agent drawing from that stale view both misplaces shapes and bases
+      // its LWW clocks low enough to revert a move or delete a person made
+      // moments ago. The cache has their broadcast diffs the instant they
+      // happen.
       const snapshot = await fetchCanvas(roomName)
+      mergeIntoCanvasCache(snapshot.records)
       const { changes, summary, warnings } = buildCanvasRecords(
         ops,
-        new Map(snapshot.records.map((r) => [r.id, r])),
+        canvasCache,
         { identity: `agent-${entry.id}`, name: entry.name },
       )
       if (changes.length === 0) {
@@ -514,8 +521,13 @@ export default defineAgent({
       })
       return [summary, ...warnings].join(" ").trim()
     }
-    const readCanvas = async (): Promise<string> =>
-      formatCanvas(await fetchCanvas(roomName)) || "The whiteboard is empty."
+    const readCanvas = async (): Promise<string> => {
+      mergeIntoCanvasCache((await fetchCanvas(roomName)).records)
+      return (
+        formatCanvas({ records: [...canvasCache.values()] }) ||
+        "The whiteboard is empty."
+      )
+    }
 
     // Meeting context: what was said before the agent joined (from the
     // control API's transcript store) plus who's in the room. Wrapping the
