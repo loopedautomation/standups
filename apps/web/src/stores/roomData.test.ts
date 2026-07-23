@@ -2,8 +2,11 @@ import type { ChatMessage } from "@meet/shared"
 import { beforeEach, describe, expect, it } from "vitest"
 import {
   $chatMessages,
+  $typingAgents,
   addChatMessage,
+  pruneTypingAgents,
   removeChatMessage,
+  setAgentTyping,
   updateChatMessage,
 } from "./roomData"
 
@@ -66,5 +69,41 @@ describe("removeChatMessage", () => {
   it("is a no-op for an id that isn't present", () => {
     removeChatMessage("missing", "yashay")
     expect($chatMessages.get()).toEqual([])
+  })
+})
+
+describe("typing indicators", () => {
+  beforeEach(() => {
+    $typingAgents.set({})
+  })
+
+  it("tracks typers by identity — humans and agents alike", () => {
+    setAgentTyping("agent-scout", "Scout", true, Date.now())
+    setAgentTyping("user-abc", "Ratul", true, Date.now())
+    expect(Object.keys($typingAgents.get()).sort()).toEqual([
+      "agent-scout",
+      "user-abc",
+    ])
+  })
+
+  it("clears a typer when their stopped signal arrives", () => {
+    setAgentTyping("user-abc", "Ratul", true, Date.now())
+    setAgentTyping("user-abc", "Ratul", false, Date.now())
+    expect($typingAgents.get()).toEqual({})
+  })
+
+  it("a heartbeat refreshes the timestamp, keeping the indicator alive", () => {
+    const early = Date.now() - 60_000
+    setAgentTyping("user-abc", "Ratul", true, early)
+    setAgentTyping("user-abc", "Ratul", true, Date.now())
+    pruneTypingAgents(10_000)
+    expect($typingAgents.get()["user-abc"]).toBeDefined()
+  })
+
+  it("prunes a stuck indicator whose stopped signal was dropped", () => {
+    setAgentTyping("user-abc", "Ratul", true, Date.now() - 60_000)
+    setAgentTyping("agent-scout", "Scout", true, Date.now())
+    pruneTypingAgents(10_000)
+    expect(Object.keys($typingAgents.get())).toEqual(["agent-scout"])
   })
 })

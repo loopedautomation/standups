@@ -26,6 +26,7 @@ import {
   bargeInConfigFromEnv,
   PcmRingBuffer,
 } from "./barge-in.js"
+import { collectBrainReply } from "./brain-reply.js"
 import {
   CANVAS_PROTOCOL_NOTE,
   CanvasBlockExtractor,
@@ -268,33 +269,27 @@ export async function runRealtimeAgent(opts: {
     debug("info", `task started: "${request.slice(0, 200)}"`)
     try {
       const { text: input, images } = await attachScreenFrame(screen, request)
-      let reply = ""
       // The brain's tool activity streams to the room's activity feed, but
       // the realtime model only hears the final reply — so it can't speak to
       // what was actually done ("I filed issue #42"). Digest the tool calls
       // and hand them back with the reply.
       const actions: string[] = []
       let pendingCall: string | null = null
-      for await (const frame of brain.runTurn(input, images)) {
-        publishBrainActivity(entry.id, frame, callbacks)
-        if (frame.type === "assistant") {
-          reply += (reply ? "\n" : "") + frame.content
-        } else if (frame.type === "result" && frame.reply) {
-          // Some agent builds stream no assistant frames at all — the final
-          // reply arrives only here. Authoritative when present.
-          reply = frame.reply
-        } else if (frame.type === "tool_call") {
-          pendingCall = `${frame.name}(${frame.arguments.slice(0, 120)})`
-        } else if (frame.type === "tool_result") {
-          if (actions.length < 12) {
-            const result = frame.content.replace(/\s+/g, " ").slice(0, 150)
-            actions.push(`${pendingCall ?? frame.name} -> ${result}`)
+      const reply = await collectBrainReply(
+        brain.runTurn(input, images),
+        (frame) => {
+          publishBrainActivity(entry.id, frame, callbacks)
+          if (frame.type === "tool_call") {
+            pendingCall = `${frame.name}(${frame.arguments.slice(0, 120)})`
+          } else if (frame.type === "tool_result") {
+            if (actions.length < 12) {
+              const result = frame.content.replace(/\s+/g, " ").slice(0, 150)
+              actions.push(`${pendingCall ?? frame.name} -> ${result}`)
+            }
+            pendingCall = null
           }
-          pendingCall = null
-        } else if (frame.type === "error") {
-          throw new Error(frame.error)
-        }
-      }
+        },
+      )
       const digest = actions.length
         ? `\n\n[For your own awareness — the tool actions behind this answer, so you can speak to them naturally and accurately:\n${actions.join("\n")}]`
         : ""
@@ -325,17 +320,10 @@ export async function runRealtimeAgent(opts: {
         "likely asking about — an error, a diff, a chart, the active window.",
     )
     if (!images) return "Nobody is sharing their screen at the moment."
-    let description = ""
-    for await (const frame of brain.runTurn(text, images)) {
-      publishBrainActivity(entry.id, frame, callbacks)
-      if (frame.type === "assistant") {
-        description += (description ? "\n" : "") + frame.content
-      } else if (frame.type === "result" && frame.reply) {
-        description = frame.reply
-      } else if (frame.type === "error") {
-        throw new Error(frame.error)
-      }
-    }
+    const description = await collectBrainReply(
+      brain.runTurn(text, images),
+      (frame) => publishBrainActivity(entry.id, frame, callbacks),
+    )
     return description || "You couldn't make out what's on the screen."
   }
 
@@ -368,17 +356,10 @@ export async function runRealtimeAgent(opts: {
               `${CANVAS_PROTOCOL_NOTE}\n\n` +
               "Reply with the canvas block(s) and nothing else — no " +
               "prose outside the markers."
-            let reply = ""
-            for await (const frame of brain.runTurn(prompt)) {
-              publishBrainActivity(entry.id, frame, callbacks)
-              if (frame.type === "assistant") {
-                reply += (reply ? "\n" : "") + frame.content
-              } else if (frame.type === "result" && frame.reply) {
-                reply = frame.reply
-              } else if (frame.type === "error") {
-                throw new Error(frame.error)
-              }
-            }
+            const reply = await collectBrainReply(
+              brain.runTurn(prompt),
+              (frame) => publishBrainActivity(entry.id, frame, callbacks),
+            )
             const { blocks } = new CanvasBlockExtractor().feed(reply)
             if (blocks.length === 0) {
               debug("error", "drawing produced no canvas block")
@@ -423,17 +404,10 @@ export async function runRealtimeAgent(opts: {
               "nothing else — no preamble, no commentary, no code fences. " +
               "Preserve everything already in the document unless the " +
               "instruction says to change it."
-            let updated = ""
-            for await (const frame of brain.runTurn(prompt)) {
-              publishBrainActivity(entry.id, frame, callbacks)
-              if (frame.type === "assistant") {
-                updated += (updated ? "\n" : "") + frame.content
-              } else if (frame.type === "result" && frame.reply) {
-                updated = frame.reply
-              } else if (frame.type === "error") {
-                throw new Error(frame.error)
-              }
-            }
+            const updated = await collectBrainReply(
+              brain.runTurn(prompt),
+              (frame) => publishBrainActivity(entry.id, frame, callbacks),
+            )
             const text = stripFence(updated)
             if (!text.trim()) {
               debug("error", "doc update produced no text; nothing written")

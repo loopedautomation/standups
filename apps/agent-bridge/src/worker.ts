@@ -53,6 +53,7 @@ import {
 } from "./agent-presence.js"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
+import { collectBrainReply } from "./brain-reply.js"
 import {
   CANVAS_PROTOCOL_NOTE,
   CanvasBlockExtractor,
@@ -697,36 +698,30 @@ export default defineAgent({
       setState(sessionState.muted ? "muted" : "thinking")
       setTyping(true)
       try {
-        let reply = ""
-        for await (const frame of brain.runTurn(input, images)) {
-          const at = Date.now()
-          if (frame.type === "assistant") {
-            reply += (reply ? "\n" : "") + frame.content
-          } else if (frame.type === "result" && frame.reply) {
-            // Some agent builds stream no assistant frames — the final
-            // reply arrives only here. Authoritative when present.
-            reply = frame.reply
-          } else if (frame.type === "tool_call") {
-            publishActivity({
-              type: "tool_call",
-              agentId: entry.id,
-              name: frame.name,
-              arguments: frame.arguments,
-              at,
-            })
-          } else if (frame.type === "tool_result") {
-            publishActivity({
-              type: "tool_result",
-              agentId: entry.id,
-              name: frame.name,
-              content: frame.content.slice(0, 8000),
-              durationMs: frame.durationMs,
-              at,
-            })
-          } else if (frame.type === "error") {
-            throw new Error(frame.error)
-          }
-        }
+        const reply = await collectBrainReply(
+          brain.runTurn(input, images),
+          (frame) => {
+            const at = Date.now()
+            if (frame.type === "tool_call") {
+              publishActivity({
+                type: "tool_call",
+                agentId: entry.id,
+                name: frame.name,
+                arguments: frame.arguments,
+                at,
+              })
+            } else if (frame.type === "tool_result") {
+              publishActivity({
+                type: "tool_result",
+                agentId: entry.id,
+                name: frame.name,
+                content: frame.content.slice(0, 8000),
+                durationMs: frame.durationMs,
+                at,
+              })
+            }
+          },
+        )
         // Chat-asked doc edits and drawings come back as marker blocks too —
         // act on them and keep them out of the chat.
         const { spoken: afterDocs, blocks: docs } =
