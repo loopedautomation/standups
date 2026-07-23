@@ -1086,6 +1086,10 @@ export default defineAgent({
           const at = Date.now()
           if (frame.type === "assistant") {
             reply += (reply ? "\n" : "") + frame.content
+          } else if (frame.type === "result" && frame.reply) {
+            // Some agent builds stream no assistant frames — the final
+            // reply arrives only here. Authoritative when present.
+            reply = frame.reply
           } else if (frame.type === "tool_call") {
             publishActivity({
               type: "tool_call",

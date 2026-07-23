@@ -270,6 +270,10 @@ export async function runRealtimeAgent(opts: {
         publishBrainActivity(entry.id, frame, callbacks)
         if (frame.type === "assistant") {
           reply += (reply ? "\n" : "") + frame.content
+        } else if (frame.type === "result" && frame.reply) {
+          // Some agent builds stream no assistant frames at all — the final
+          // reply arrives only here. Authoritative when present.
+          reply = frame.reply
         } else if (frame.type === "tool_call") {
           pendingCall = `${frame.name}(${frame.arguments.slice(0, 120)})`
         } else if (frame.type === "tool_result") {
@@ -317,6 +321,8 @@ export async function runRealtimeAgent(opts: {
       publishBrainActivity(entry.id, frame, callbacks)
       if (frame.type === "assistant") {
         description += (description ? "\n" : "") + frame.content
+      } else if (frame.type === "result" && frame.reply) {
+        description = frame.reply
       } else if (frame.type === "error") {
         throw new Error(frame.error)
       }
@@ -358,6 +364,8 @@ export async function runRealtimeAgent(opts: {
               publishBrainActivity(entry.id, frame, callbacks)
               if (frame.type === "assistant") {
                 reply += (reply ? "\n" : "") + frame.content
+              } else if (frame.type === "result" && frame.reply) {
+                reply = frame.reply
               } else if (frame.type === "error") {
                 throw new Error(frame.error)
               }
@@ -411,6 +419,8 @@ export async function runRealtimeAgent(opts: {
               publishBrainActivity(entry.id, frame, callbacks)
               if (frame.type === "assistant") {
                 updated += (updated ? "\n" : "") + frame.content
+              } else if (frame.type === "result" && frame.reply) {
+                updated = frame.reply
               } else if (frame.type === "error") {
                 throw new Error(frame.error)
               }

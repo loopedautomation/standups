@@ -218,6 +218,10 @@ export class LoopedVoiceAgent extends voice.Agent {
         })
     }
 
+    // Some agent builds stream no assistant frames at all — the final reply
+    // arrives only in the closing `result` frame. Track whether anything was
+    // spoken so that reply isn't dropped (or doubled).
+    let sawAssistant = false
     const iterator = brain.runTurn(attached.text, attached.images)
     return new ReadableStream<string>({
       async pull(controller) {
@@ -286,9 +290,11 @@ export class LoopedVoiceAgent extends voice.Agent {
               })
               break
             case "assistant":
+              sawAssistant = true
               speakOrSave(frame.content)
               break
             case "result":
+              if (!sawAssistant && frame.reply) speakOrSave(frame.reply)
               controller.close()
               break
             case "error":
