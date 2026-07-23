@@ -19,7 +19,7 @@ agents:
 
   - id: echo
     name: Echo
-    description: Twin of Scout — same brain, pay-per-turn habits.
+    description: Scout's realtime twin — same brain, speaks over Gemini Live.
     greeting: "Echo here. What do you need?"
     # Default to a realtime speech-to-speech presence on Gemini Live
     # (model/voice fall back to the schema defaults: native-audio + Puck).
