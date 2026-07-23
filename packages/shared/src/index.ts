@@ -579,6 +579,11 @@ export const canvasPresenceSchema = z.object({
   x: z.number(),
   y: z.number(),
   at: z.number(),
+  /**
+   * The sender's cursor is leaving the board (an agent finished drawing).
+   * Without this, a finished cursor lingers until the staleness prune.
+   */
+  gone: z.boolean().optional(),
 })
 export type CanvasPresence = z.infer<typeof canvasPresenceSchema>
 

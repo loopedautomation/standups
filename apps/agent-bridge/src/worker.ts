@@ -20,14 +20,25 @@ import {
   agentControlSchema,
   type CanvasDiff,
   type CanvasOp,
+  type CanvasPresence,
   type ChatMessage,
   chatMessageSchema,
   chunkCanvasChanges,
   DataTopic,
+  type DocPresence,
+  docCursorColor,
   type ParticipantMeta,
   parseParticipantMeta,
   TRANSCRIPTION_TOPIC,
 } from "@meet/shared"
+import {
+  CURSOR_FRAME_MS,
+  caretSweep,
+  cursorLeg,
+  groupForReveal,
+  REVEAL_BEAT_MS,
+  revealLegMs,
+} from "./agent-presence.js"
 import { LoopedVoiceAgent, SessionState } from "./agent-session.js"
 import { bargeInConfigFromEnv } from "./barge-in.js"
 import { buildCanvasRecords } from "./canvas-records.js"
@@ -294,6 +305,25 @@ export default defineAgent({
 
     const screen = new ScreenCapture(ctx.room)
 
+    // The agent's visible hand. Presence frames are lossy fire-and-forget,
+    // and animations queue so overlapping tool calls play out in order
+    // rather than teleporting the cursor around.
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms))
+    let presenceChain: Promise<void> = Promise.resolve()
+    const queuePresence = (run: () => Promise<void>) => {
+      presenceChain = presenceChain.then(run).catch(() => undefined)
+    }
+    const publishLossy = (topic: string, payload: unknown) => {
+      local
+        .publishData(new TextEncoder().encode(JSON.stringify(payload)), {
+          reliable: false,
+          topic,
+        })
+        .catch(() => undefined)
+    }
+    const agentCursorColor = docCursorColor(`agent-${entry.id}`, -1)
+
     /**
      * Write the shared document and tell the room. Persisting alone isn't
      * enough — anyone with the Doc panel open is watching the data channel,
@@ -313,6 +343,27 @@ export default defineAgent({
           topic: DataTopic.Doc,
         })
         .catch(() => undefined)
+      // The agent's caret sweeps through what it just wrote, then leaves —
+      // the update lands instantly; this is how the room sees who did it.
+      queuePresence(async () => {
+        const caret = (start: number | null, end: number | null) => {
+          const presence: DocPresence = {
+            by: `agent-${entry.id}`,
+            byName: entry.name,
+            color: agentCursorColor,
+            start,
+            end,
+            at: Date.now(),
+          }
+          publishLossy(DataTopic.DocPresence, presence)
+        }
+        for (const offset of caretSweep(text.length, 14)) {
+          caret(offset, offset)
+          await sleep(90)
+        }
+        await sleep(400)
+        caret(null, null)
+      })
       return "Saved. Everyone can see the updated document."
     }
 
@@ -341,16 +392,51 @@ export default defineAgent({
       if (!(await postCanvasDiff(roomName, diff))) {
         return "The drawing couldn't be saved."
       }
-      for (const chunk of chunkCanvasChanges(changes)) {
-        local
-          .publishData(
-            new TextEncoder().encode(
-              JSON.stringify({ ...diff, changes: chunk }),
-            ),
-            { reliable: true, topic: DataTopic.Canvas },
-          )
-          .catch(() => undefined)
+      // The full batch is already durable; the room watches it appear shape
+      // by shape, the agent's cursor gliding to each one first. Queued and
+      // unawaited so the model keeps talking while its hand draws.
+      const broadcast = (batch: typeof changes) => {
+        for (const chunk of chunkCanvasChanges(batch)) {
+          local
+            .publishData(
+              new TextEncoder().encode(
+                JSON.stringify({ ...diff, changes: chunk }),
+              ),
+              { reliable: true, topic: DataTopic.Canvas },
+            )
+            .catch(() => undefined)
+        }
       }
+      const cursor = (x: number, y: number, gone = false) => {
+        const presence: CanvasPresence = {
+          type: "cursor",
+          from: `agent-${entry.id}`,
+          name: entry.name,
+          x,
+          y,
+          at: Date.now(),
+          ...(gone ? { gone } : {}),
+        }
+        publishLossy(DataTopic.CanvasPresence, presence)
+      }
+      queuePresence(async () => {
+        const groups = groupForReveal(changes)
+        const legMs = revealLegMs(groups.length)
+        const steps = Math.max(2, Math.round(legMs / CURSOR_FRAME_MS))
+        let from = groups.find((g) => g.at)?.at ?? null
+        for (const group of groups) {
+          if (group.at && from) {
+            for (const frame of cursorLeg(from, group.at, steps)) {
+              cursor(frame.x, frame.y)
+              await sleep(CURSOR_FRAME_MS)
+            }
+            from = group.at
+          }
+          broadcast(group.changes)
+          await sleep(REVEAL_BEAT_MS)
+        }
+        if (from) cursor(from.x, from.y, true)
+      })
       return [summary, ...warnings].join(" ").trim()
     }
     const readCanvas = async (): Promise<string> =>

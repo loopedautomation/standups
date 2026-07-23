@@ -231,12 +231,18 @@ export function WhiteboardCanvas({ slug }: { slug: string }) {
         // The actual LiveKit sender outranks the payload's claimed one.
         const from = msg.from?.identity ?? parsed.data.from
         if (from === identity) return
-        presence.current.set(from, {
-          name: msg.from?.name || parsed.data.name,
-          x: parsed.data.x,
-          y: parsed.data.y,
-          at: Date.now(),
-        })
+        if (parsed.data.gone) {
+          // A finished cursor (the agent's, when it stops drawing) leaves
+          // immediately instead of lingering until the staleness prune.
+          presence.current.delete(from)
+        } else {
+          presence.current.set(from, {
+            name: msg.from?.name || parsed.data.name,
+            x: parsed.data.x,
+            y: parsed.data.y,
+            at: Date.now(),
+          })
+        }
         pushCollaborators()
       } catch {}
     },
